@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isStoredPasswordHash } from "./security/password.js";
 
 export interface AppConfig {
   immichUrl: string;
@@ -21,8 +22,8 @@ const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
 export const envSchema = z.object({
   IMMICH_URL: z.string().url(),
   IMMICH_API_KEY: z.string().min(20),
-  FAMILY_PASSWORD_HASH: z.string().startsWith("scrypt$"),
-  ADMIN_PASSWORD_HASH: z.string().startsWith("scrypt$"),
+  FAMILY_PASSWORD_HASH: z.string().refine(isStoredPasswordHash, "must be a canonical scrypt stored hash"),
+  ADMIN_PASSWORD_HASH: z.string().refine(isStoredPasswordHash, "must be a canonical scrypt stored hash"),
   BABY_BIRTH_DATE: z.string().regex(isoDatePattern, "must use YYYY-MM-DD"),
   TZ: z.string().default("Australia/Melbourne"),
   SESSION_SECRET: z.string().min(32),

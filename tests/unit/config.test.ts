@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { parseConfig } from "../../src/server/config.js";
 
+const storedHash = "scrypt$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
 const validEnv = (overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({
   IMMICH_URL: "http://immich-server:2283",
   IMMICH_API_KEY: "immich-api-key-with-at-least-20-characters",
-  FAMILY_PASSWORD_HASH: "scrypt$c2FsdA$aGFzaA",
-  ADMIN_PASSWORD_HASH: "scrypt$c2FsdA$aGFzaA",
+  FAMILY_PASSWORD_HASH: storedHash,
+  ADMIN_PASSWORD_HASH: storedHash,
   BABY_BIRTH_DATE: "2025-08-07",
   SESSION_SECRET: "a-session-secret-that-is-at-least-32-characters",
   PUBLIC_ORIGIN: "https://slideshow.example.com",
@@ -17,8 +19,8 @@ describe("parseConfig", () => {
     expect(parseConfig(validEnv({ IMMICH_URL: "http://immich-server:2283/" }))).toEqual({
       immichUrl: "http://immich-server:2283",
       immichApiKey: "immich-api-key-with-at-least-20-characters",
-      familyPasswordHash: "scrypt$c2FsdA$aGFzaA",
-      adminPasswordHash: "scrypt$c2FsdA$aGFzaA",
+      familyPasswordHash: storedHash,
+      adminPasswordHash: storedHash,
       babyBirthDate: "2025-08-07",
       timezone: "Australia/Melbourne",
       sessionSecret: "a-session-secret-that-is-at-least-32-characters",
@@ -35,6 +37,10 @@ describe("parseConfig", () => {
     for (const url of [
       "https://photos.example.com",
       "https://8.8.8.8",
+      "http://134744072:2283",
+      "http://0x8080808:2283",
+      "http://010.010.010.010:2283",
+      "https://photos.example.com.",
       "http://user:password@immich-server:2283",
       "http://immich-server:2283?token=secret",
       "http://immich-server:2283#fragment",
@@ -81,6 +87,18 @@ describe("parseConfig", () => {
       /ADMIN_PASSWORD_HASH/
     );
     expect(() => parseConfig(validEnv({ SESSION_SECRET: "too short" }))).toThrow(/SESSION_SECRET/);
+  });
+
+  it("rejects malformed password hashes that only share the scrypt prefix", () => {
+    for (const passwordHash of [
+      "scrypt$not-base64$not-base64",
+      "scrypt$AA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "scrypt$AAAAAAAAAAAAAAAAAAAAAA$AA",
+      "scrypt$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB"
+    ]) {
+      expect(() => parseConfig(validEnv({ FAMILY_PASSWORD_HASH: passwordHash }))).toThrow(/FAMILY_PASSWORD_HASH/);
+      expect(() => parseConfig(validEnv({ ADMIN_PASSWORD_HASH: passwordHash }))).toThrow(/ADMIN_PASSWORD_HASH/);
+    }
   });
 
   it("requires a public origin without credentials, query, fragment, or a path", () => {

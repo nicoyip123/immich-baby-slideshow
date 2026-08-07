@@ -1,7 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { hashPassword, verifyPassword } from "../../src/server/security/password.js";
+import { hashPassword, parseStoredPasswordHash, SCRYPT_OPTIONS, verifyPassword } from "../../src/server/security/password.js";
 
 describe("password hashing", () => {
+  it("freezes explicit scrypt options for the three-segment hash format", () => {
+    expect(SCRYPT_OPTIONS).toEqual({ N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
+    expect(Object.isFrozen(SCRYPT_OPTIONS)).toBe(true);
+  });
+
+  it("parses only canonical fixed-length stored hashes", () => {
+    const validHash = "scrypt$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    expect(parseStoredPasswordHash(validHash)).toMatchObject({
+      salt: Buffer.alloc(16),
+      key: Buffer.alloc(64)
+    });
+    for (const invalidHash of [
+      "scrypt$not-base64$not-base64",
+      "scrypt$AA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "scrypt$AAAAAAAAAAAAAAAAAAAAAA$AA",
+      "scrypt$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB"
+    ]) {
+      expect(parseStoredPasswordHash(invalidHash)).toBeUndefined();
+    }
+  });
+
   it("round-trips a password without storing plaintext", async () => {
     const hash = await hashPassword("family secret");
     expect(hash).toMatch(/^scrypt\$/);

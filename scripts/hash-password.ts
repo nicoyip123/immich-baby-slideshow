@@ -1,17 +1,31 @@
 import { hashPassword } from "../src/server/security/password.js";
 import { pathToFileURL } from "node:url";
 
-export type PasswordInput = NodeJS.ReadableStream & {
+type DataListener = (chunk: Buffer | string) => void;
+type EndListener = () => void;
+type ErrorListener = (error: Error) => void;
+
+export interface PasswordInput {
   isTTY?: boolean;
   isRaw?: boolean;
-  setRawMode?: (mode: boolean) => NodeJS.ReadStream;
+  setRawMode?: (mode: boolean) => unknown;
   resume(): void;
   pause(): void;
-};
+  on(event: "data", listener: DataListener): unknown;
+  once(event: "end", listener: EndListener): unknown;
+  once(event: "error", listener: ErrorListener): unknown;
+  off(event: "data", listener: DataListener): unknown;
+  off(event: "end", listener: EndListener): unknown;
+  off(event: "error", listener: ErrorListener): unknown;
+}
+
+export interface PasswordOutput {
+  write(value: string): unknown;
+}
 
 export async function readPassword(
   input: PasswordInput = process.stdin,
-  output: NodeJS.WritableStream = process.stderr
+  output: PasswordOutput = process.stderr
 ): Promise<string> {
   output.write("Password: ");
   const setRawMode = input.setRawMode?.bind(input);
@@ -20,37 +34,53 @@ export async function readPassword(
 
   return new Promise((resolve, reject) => {
     let password = "";
+    let settled = false;
     const initialRawMode = input.isRaw === true;
     const onData = (chunk: Buffer | string) => {
       for (const character of chunk.toString()) {
-        if (character === "\u0003") return finish(new Error("Password input cancelled"));
-        if (character === "\u0004") return finish(new Error("Password input ended"));
-        if (character === "\r" || character === "\n") return finish(password);
+        if (character === "\u0003") return settle(new Error("Password input cancelled"));
+        if (character === "\u0004") return settle(new Error("Password input ended"));
+        if (character === "\r" || character === "\n") return settle(password);
         if (character === "\u007f" || character === "\b") password = password.slice(0, -1);
         else password += character;
       }
     };
-    const onEnd = () => finish(new Error("Password input ended"));
-    const onError = (error: Error) => finish(error);
-    const restore = () => {
-      input.off("data", onData);
-      input.off("end", onEnd);
-      input.off("error", onError);
-      setRawMode(initialRawMode);
-      input.pause();
-    };
-    const finish = (result: string | Error) => {
-      restore();
-      output.write("\n");
+    const onEnd = () => settle(new Error("Password input ended"));
+    const onError = (error: Error) => settle(error);
+    const settle = (result: string | Error) => {
+      if (settled) return;
+      settled = true;
+
+      let cleanupError: Error | undefined;
+      const cleanup = (operation: () => unknown) => {
+        try {
+          operation();
+        } catch (error) {
+          if (!cleanupError) cleanupError = error instanceof Error ? error : new Error("Password terminal cleanup failed");
+        }
+      };
+
+      cleanup(() => input.off("data", onData));
+      cleanup(() => input.off("end", onEnd));
+      cleanup(() => input.off("error", onError));
+      cleanup(() => setRawMode(initialRawMode));
+      cleanup(() => input.pause());
+      cleanup(() => output.write("\n"));
+
       if (result instanceof Error) reject(result);
+      else if (cleanupError) reject(cleanupError);
       else resolve(result);
     };
 
-    setRawMode(true);
-    input.on("data", onData);
-    input.once("end", onEnd);
-    input.once("error", onError);
-    input.resume();
+    try {
+      input.on("data", onData);
+      input.once("end", onEnd);
+      input.once("error", onError);
+      setRawMode(true);
+      input.resume();
+    } catch (error) {
+      settle(error instanceof Error ? error : new Error("Password terminal setup failed"));
+    }
   });
 }
 
