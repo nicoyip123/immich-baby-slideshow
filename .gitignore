@@ -1,5 +1,5 @@
 .env
 .superpowers/
+outputs/
 music/*
 !music/.gitkeep
-
