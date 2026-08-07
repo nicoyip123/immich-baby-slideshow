@@ -122,13 +122,18 @@ export async function registerAuthRoutes(
       if (inFlightKeys.has(key)) return reply.code(429).send(RATE_LIMIT_BODY);
       inFlightKeys.add(key);
       let released = false;
-      inFlightReleases.set(request, () => {
+      const release = () => {
         if (!released) {
           released = true;
           inFlightKeys.delete(key);
           inFlightReleases.delete(request);
+          request.raw.off("aborted", release);
+          request.raw.off("error", release);
         }
-      });
+      };
+      inFlightReleases.set(request, release);
+      request.raw.once("aborted", release);
+      request.raw.once("error", release);
     };
 
     app.post(`/api/auth/${role}`, {

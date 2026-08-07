@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { createConnection } from "node:net";
+import type { AddressInfo } from "node:net";
 import { buildApp, type BuildAppOptions } from "../../src/server/app.js";
 import type { AppConfig } from "../../src/server/config.js";
 
@@ -287,6 +289,42 @@ describe("authentication boundary", () => {
     expect((await first).statusCode).toBe(200);
     expect((await login(app, "family", "family secret", "192.0.2.60")).statusCode).toBe(200);
     expect(verificationCalls).toBe(2);
+  });
+
+  it("releases per-IP admission when a client aborts during body upload", async () => {
+    let verificationCalls = 0;
+    const app = await makeApp({
+      verifyPassword: async () => {
+        verificationCalls += 1;
+        return true;
+      }
+    });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const address = app.server.address() as AddressInfo;
+
+    await new Promise<void>((resolve, reject) => {
+      const socket = createConnection({ host: "127.0.0.1", port: address.port });
+      socket.once("error", reject);
+      socket.once("connect", () => {
+        socket.write([
+          "POST /api/auth/family HTTP/1.1",
+          `Host: 127.0.0.1:${address.port}`,
+          `Origin: ${publicOrigin}`,
+          "Content-Type: application/json",
+          "Content-Length: 100",
+          "Connection: close",
+          "",
+          '{"password":"partial'
+        ].join("\r\n"));
+        setTimeout(() => socket.destroy(), 10);
+      });
+      socket.once("close", () => resolve());
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+    const next = await login(app, "family", "family secret", "127.0.0.1");
+    expect(next.statusCode).toBe(200);
+    expect(verificationCalls).toBe(1);
   });
 
   it("bounds global verification concurrency and releases permits after false, throw, and success", async () => {
