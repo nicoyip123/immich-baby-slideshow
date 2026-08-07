@@ -4,10 +4,8 @@ import { isAllowedOrigin } from "../../src/server/security/origin.js";
 describe("isAllowedOrigin", () => {
   const configuredOrigin = "https://slideshow.example.com";
 
-  it("accepts only the configured canonical origin", () => {
+  it("accepts only the exact normalized configured origin", () => {
     expect(isAllowedOrigin(configuredOrigin, configuredOrigin)).toBe(true);
-    expect(isAllowedOrigin("https://slideshow.example.com:443", configuredOrigin)).toBe(true);
-    expect(isAllowedOrigin("https://slideshow.example.com/", configuredOrigin)).toBe(true);
   });
 
   it("rejects absent, opaque, malformed, and multiple origins", () => {
@@ -19,6 +17,10 @@ describe("isAllowedOrigin", () => {
       "https://slideshow.example.com ",
       "https:\\\\slideshow.example.com",
       "https://slideshow.example.com\\",
+      "https://slideshow.example.com/",
+      "https://slideshow.example.com:443",
+      "HTTPS://SLIDESHOW.EXAMPLE.COM",
+      "https://%73lideshow.example.com",
       "https://slideshow.example.com, https://evil.example",
       ["https://slideshow.example.com", "https://evil.example"]
     ]) {

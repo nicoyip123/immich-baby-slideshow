@@ -1,4 +1,9 @@
-import type { FastifyInstance, preHandlerHookHandler } from "fastify";
+import type {
+  FastifyInstance,
+  FastifyReply,
+  FastifyRequest,
+  preHandlerHookHandler
+} from "fastify";
 import type { AppConfig } from "../config.js";
 import type { FailedLoginLimiter } from "../security/login-attempts.js";
 import { requireConfiguredOrigin } from "../security/origin.js";
@@ -11,6 +16,12 @@ const AUTHENTICATION_FAILURE_BODY = Object.freeze({ error: "Authentication faile
 const AUTHENTICATION_REQUIRED_BODY = Object.freeze({ error: "Authentication required" });
 const RATE_LIMIT_BODY = Object.freeze({ error: "Please try again later" });
 const SUCCESS_BODY = Object.freeze({ success: true });
+const MALFORMED_CREDENTIAL_ERROR_CODES = new Set([
+  "FST_ERR_CTP_BODY_TOO_LARGE",
+  "FST_ERR_CTP_EMPTY_JSON_BODY",
+  "FST_ERR_CTP_INVALID_JSON_BODY",
+  "FST_ERR_CTP_INVALID_MEDIA_TYPE"
+]);
 
 export interface AuthGuards {
   requireFamilySession: preHandlerHookHandler;
@@ -74,15 +85,19 @@ export async function registerAuthRoutes(
   });
 
   for (const role of ["family", "admin"] as const) {
+    const rejectMalformedCredential = (request: FastifyRequest, reply: FastifyReply) => {
+      if (options.failedLogins.isBlocked(role, request.ip)) {
+        return reply.code(429).send(RATE_LIMIT_BODY);
+      }
+      options.failedLogins.recordFailure(role, request.ip);
+      return reply.code(400).send(AUTHENTICATION_FAILURE_BODY);
+    };
+
     app.post(`/api/auth/${role}`, {
       onRequest: originGuard,
       errorHandler(error, request, reply) {
-        if (error.code === "FST_ERR_CTP_INVALID_JSON_BODY") {
-          if (options.failedLogins.isBlocked(role, request.ip)) {
-            return reply.code(429).send(RATE_LIMIT_BODY);
-          }
-          options.failedLogins.recordFailure(role, request.ip);
-          return reply.code(400).send(AUTHENTICATION_FAILURE_BODY);
+        if (MALFORMED_CREDENTIAL_ERROR_CODES.has(error.code)) {
+          return rejectMalformedCredential(request, reply);
         }
         throw error;
       }
@@ -94,8 +109,7 @@ export async function registerAuthRoutes(
 
       const password = readCredential(request.body);
       if (password === undefined) {
-        options.failedLogins.recordFailure(role, clientIp);
-        return reply.code(400).send(AUTHENTICATION_FAILURE_BODY);
+        return rejectMalformedCredential(request, reply);
       }
 
       let authenticated = false;

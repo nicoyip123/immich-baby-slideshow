@@ -38,9 +38,8 @@ export function isAllowedOrigin(
   publicOrigin: string
 ): boolean {
   if (typeof origin !== "string") return false;
-  const actual = canonicalHttpOrigin(origin);
   const expected = canonicalHttpOrigin(publicOrigin);
-  return actual !== undefined && expected !== undefined && actual === expected;
+  return expected !== undefined && origin === expected;
 }
 
 /** Reusable CSRF boundary for state-changing routes. */

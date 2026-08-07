@@ -42,6 +42,36 @@ function setCookieHeader(response: { headers: Record<string, string | string[] |
   return String(value);
 }
 
+function malformedCredentialRequests() {
+  return [
+    {
+      name: "empty JSON body",
+      headers: { "content-type": "application/json" },
+      payload: ""
+    },
+    {
+      name: "unsupported content type",
+      headers: { "content-type": "application/xml" },
+      payload: "<password>secret</password>"
+    },
+    {
+      name: "oversized JSON body",
+      headers: { "content-type": "application/json" },
+      payload: JSON.stringify({ password: "x".repeat(1024 * 1024) })
+    },
+    {
+      name: "malformed JSON body",
+      headers: { "content-type": "application/json" },
+      payload: '{"password":'
+    },
+    {
+      name: "schema-invalid JSON body",
+      headers: { "content-type": "application/json" },
+      payload: JSON.stringify({ password: 123 })
+    }
+  ];
+}
+
 describe("authentication boundary", () => {
   const apps: TestApp[] = [];
   let now = Date.UTC(2026, 7, 7, 12, 0, 0);
@@ -150,29 +180,67 @@ describe("authentication boundary", () => {
     expect((await login(app, "family", "wrong", "192.0.2.1")).statusCode).toBe(401);
   });
 
-  it("counts malformed JSON as a failed login without exposing parser detail", async () => {
+  it("maps every malformed credential request to the same generic failure for both roles", async () => {
     const app = await makeApp();
-    for (let attempt = 1; attempt <= 5; attempt += 1) {
+    let client = 10;
+    const actual: Array<{ role: string; name: string; statusCode: number; body: unknown }> = [];
+    for (const role of ["family", "admin"] as const) {
+      for (const malformed of malformedCredentialRequests()) {
+        const response = await app.inject({
+          method: "POST",
+          url: `/api/auth/${role}`,
+          headers: { origin: publicOrigin, ...malformed.headers },
+          payload: malformed.payload,
+          remoteAddress: `192.0.2.${client++}`
+        });
+        actual.push({
+          role,
+          name: malformed.name,
+          statusCode: response.statusCode,
+          body: response.json()
+        });
+      }
+    }
+    expect(actual).toEqual(
+      ["family", "admin"].flatMap((role) =>
+        malformedCredentialRequests().map(({ name }) => ({
+          role,
+          name,
+          statusCode: 400,
+          body: { error: "Authentication failed" }
+        }))
+      )
+    );
+  });
+
+  it("counts mixed malformed credential requests toward the shared role/IP quota", async () => {
+    const app = await makeApp();
+    const firstFive: Array<{ statusCode: number; body: unknown }> = [];
+    for (const malformed of malformedCredentialRequests()) {
       const response = await app.inject({
         method: "POST",
-        url: "/api/auth/family",
-        headers: { origin: publicOrigin, "content-type": "application/json" },
-        payload: '{"password":',
-        remoteAddress: "192.0.2.10"
+        url: "/api/auth/admin",
+        headers: { origin: publicOrigin, ...malformed.headers },
+        payload: malformed.payload,
+        remoteAddress: "192.0.2.50"
       });
-      expect(response.statusCode).toBe(400);
-      expect(response.json()).toEqual({ error: "Authentication failed" });
+      firstFive.push({ statusCode: response.statusCode, body: response.json() });
     }
 
     const limited = await app.inject({
       method: "POST",
-      url: "/api/auth/family",
+      url: "/api/auth/admin",
       headers: { origin: publicOrigin, "content-type": "application/json" },
       payload: '{"password":',
-      remoteAddress: "192.0.2.10"
+      remoteAddress: "192.0.2.50"
     });
-    expect(limited.statusCode).toBe(429);
-    expect(limited.json()).toEqual({ error: "Please try again later" });
+    expect({ firstFive, sixth: { statusCode: limited.statusCode, body: limited.json() } }).toEqual({
+      firstFive: Array.from({ length: 5 }, () => ({
+        statusCode: 400,
+        body: { error: "Authentication failed" }
+      })),
+      sixth: { statusCode: 429, body: { error: "Please try again later" } }
+    });
   });
 
   it("clears failures on success and isolates counters by role and request.ip", async () => {
