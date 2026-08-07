@@ -2,7 +2,7 @@
 
 ## 1. Prepare Immich
 
-In Immich user settings, create the API key under a user who is a member of the shared album. Grant only `asset.read`, `asset.view`, and `asset.download`. Open the shared album in Immich and copy its UUID from the browser URL into `IMMICH_ALBUM_ID`. The slideshow selects only images and videos that are both favourites and members of that album.
+In Immich user settings, create the API key under a user who can access the shared album. Grant only `album.read`, `activity.read`, `asset.view`, and `asset.download`. Open the shared album in Immich and copy its UUID from the browser URL into `IMMICH_ALBUM_ID`. The slideshow selects current album images and videos with at least one asset-level Like from any user. An album-level Like does not select every item.
 
 Find the Docker network used by the Immich server in its Dockge stack; the usual name resembles `immich_default`.
 
@@ -26,7 +26,7 @@ Create/import this directory as a stack, inspect `compose.yaml`, and deploy. The
 
 - the public hostname shows the family password page;
 - the public hostname cannot route to Immich;
-- a newly favourited image/video from the configured shared album appears after pressing Begin again;
+- a newly Liked image/video from the configured shared album appears after pressing Begin again;
 - `/admin` accepts only the separate admin password;
 - declining analytics creates no Google network requests.
 
