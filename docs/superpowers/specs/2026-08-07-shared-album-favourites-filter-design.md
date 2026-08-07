@@ -1,5 +1,7 @@
 # Shared Album Favourites Filter Design
 
+> Superseded by `2026-08-07-shared-album-likes-filter-design.md`. Immich shared-album Likes are activities, not the asset Favourite flag.
+
 ## Goal
 
 Limit the baby slideshow to image and video assets that satisfy both conditions:
