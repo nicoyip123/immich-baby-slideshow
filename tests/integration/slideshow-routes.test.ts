@@ -7,6 +7,7 @@ import { createStatsDatabase } from "../../src/server/stats/database.js";
 const origin = "https://slideshow.example.com";
 const config: AppConfig = {
   immichUrl: "http://immich:2283", immichApiKey: "k".repeat(20),
+  immichAlbumId: "7f2a70a8-0f37-4b39-9d97-46d26d53f210",
   familyPasswordHash: "family", adminPasswordHash: "admin", babyBirthDate: "2025-01-01",
   timezone: "Australia/Melbourne", sessionSecret: "s".repeat(32), publicOrigin: origin,
   trustedProxyCidrs: [], databasePath: ":memory:", soundtrackPath: "/missing.mp3",

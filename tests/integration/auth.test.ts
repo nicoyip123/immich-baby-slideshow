@@ -12,6 +12,7 @@ const sessionSecret = "session-secret-leak-marker-at-least-32-characters";
 const config: AppConfig = {
   immichUrl: "http://immich-server:2283",
   immichApiKey: "immich-api-key-with-at-least-20-characters",
+  immichAlbumId: "7f2a70a8-0f37-4b39-9d97-46d26d53f210",
   familyPasswordHash: familyHash,
   adminPasswordHash: adminHash,
   babyBirthDate: "2025-08-07",

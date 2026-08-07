@@ -5,6 +5,7 @@ import { isStoredPasswordHash } from "./security/password.js";
 export interface AppConfig {
   immichUrl: string;
   immichApiKey: string;
+  immichAlbumId: string;
   familyPasswordHash: string;
   adminPasswordHash: string;
   babyBirthDate: string;
@@ -24,6 +25,7 @@ const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
 export const envSchema = z.object({
   IMMICH_URL: z.string().url(),
   IMMICH_API_KEY: z.string().min(20),
+  IMMICH_ALBUM_ID: z.string().uuid(),
   FAMILY_PASSWORD_HASH: z.string().refine(isStoredPasswordHash, "must be a canonical scrypt stored hash"),
   ADMIN_PASSWORD_HASH: z.string().refine(isStoredPasswordHash, "must be a canonical scrypt stored hash"),
   BABY_BIRTH_DATE: z.string().regex(isoDatePattern, "must use YYYY-MM-DD"),
@@ -142,6 +144,7 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
   return {
     immichUrl: immichUrl.origin,
     immichApiKey: parsed.data.IMMICH_API_KEY,
+    immichAlbumId: parsed.data.IMMICH_ALBUM_ID,
     familyPasswordHash: parsed.data.FAMILY_PASSWORD_HASH,
     adminPasswordHash: parsed.data.ADMIN_PASSWORD_HASH,
     babyBirthDate: parsed.data.BABY_BIRTH_DATE,

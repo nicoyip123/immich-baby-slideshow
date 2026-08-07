@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import { parseConfig } from "../../src/server/config.js";
 
 const storedHash = "scrypt$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const albumId = "7f2a70a8-0f37-4b39-9d97-46d26d53f210";
 
 const validEnv = (overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({
   IMMICH_URL: "http://immich-server:2283",
   IMMICH_API_KEY: "immich-api-key-with-at-least-20-characters",
+  IMMICH_ALBUM_ID: albumId,
   FAMILY_PASSWORD_HASH: storedHash,
   ADMIN_PASSWORD_HASH: storedHash,
   BABY_BIRTH_DATE: "2025-08-07",
@@ -19,6 +21,7 @@ describe("parseConfig", () => {
     expect(parseConfig(validEnv({ IMMICH_URL: "http://immich-server:2283/" }))).toEqual({
       immichUrl: "http://immich-server:2283",
       immichApiKey: "immich-api-key-with-at-least-20-characters",
+      immichAlbumId: albumId,
       familyPasswordHash: storedHash,
       adminPasswordHash: storedHash,
       babyBirthDate: "2025-08-07",
@@ -32,6 +35,12 @@ describe("parseConfig", () => {
       photoDurationMs: 7000,
       sessionDurationSeconds: 604800
     });
+  });
+
+  it("requires a canonical Immich shared album UUID", () => {
+    expect(parseConfig(validEnv()).immichAlbumId).toBe(albumId);
+    expect(() => parseConfig(validEnv({ IMMICH_ALBUM_ID: "" }))).toThrow(/IMMICH_ALBUM_ID/);
+    expect(() => parseConfig(validEnv({ IMMICH_ALBUM_ID: "baby-moments" }))).toThrow(/IMMICH_ALBUM_ID/);
   });
 
   it("rejects public Immich targets and URL components outside a private origin", () => {
