@@ -1,7 +1,9 @@
 import { hashPassword } from "../src/server/security/password.js";
+import { pathToFileURL } from "node:url";
 
-type PasswordInput = NodeJS.ReadableStream & {
+export type PasswordInput = NodeJS.ReadableStream & {
   isTTY?: boolean;
+  isRaw?: boolean;
   setRawMode?: (mode: boolean) => NodeJS.ReadStream;
   resume(): void;
   pause(): void;
@@ -14,27 +16,11 @@ export async function readPassword(
   output.write("Password: ");
   const setRawMode = input.setRawMode?.bind(input);
 
-  if (!input.isTTY || !setRawMode) {
-    const chunks: Buffer[] = [];
-    for await (const chunk of input) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    return Buffer.concat(chunks).toString("utf8").replace(/\r?\n$/, "");
-  }
+  if (!input.isTTY || !setRawMode) throw new Error("Password input must be attached to a TTY");
 
   return new Promise((resolve, reject) => {
     let password = "";
-    const restore = () => {
-      input.off("data", onData);
-      input.off("end", onEnd);
-      setRawMode(false);
-      input.pause();
-    };
-    const finish = (result: string | Error) => {
-      restore();
-      output.write("\n");
-      if (result instanceof Error) reject(result);
-      else resolve(result);
-    };
-    const onEnd = () => finish(new Error("Password input ended"));
+    const initialRawMode = input.isRaw === true;
     const onData = (chunk: Buffer | string) => {
       for (const character of chunk.toString()) {
         if (character === "\u0003") return finish(new Error("Password input cancelled"));
@@ -44,10 +30,26 @@ export async function readPassword(
         else password += character;
       }
     };
+    const onEnd = () => finish(new Error("Password input ended"));
+    const onError = (error: Error) => finish(error);
+    const restore = () => {
+      input.off("data", onData);
+      input.off("end", onEnd);
+      input.off("error", onError);
+      setRawMode(initialRawMode);
+      input.pause();
+    };
+    const finish = (result: string | Error) => {
+      restore();
+      output.write("\n");
+      if (result instanceof Error) reject(result);
+      else resolve(result);
+    };
 
     setRawMode(true);
     input.on("data", onData);
     input.once("end", onEnd);
+    input.once("error", onError);
     input.resume();
   });
 }
@@ -59,8 +61,11 @@ async function main(): Promise<void> {
   process.stdout.write(`${hash}\n`);
 }
 
-void main().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : "Unable to hash password";
-  process.stderr.write(`Error: ${message}\n`);
-  process.exitCode = 1;
-});
+const invokedScript = process.argv[1];
+if (invokedScript && import.meta.url === pathToFileURL(invokedScript).href) {
+  void main().catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : "Unable to hash password";
+    process.stderr.write(`Error: ${message}\n`);
+    process.exitCode = 1;
+  });
+}

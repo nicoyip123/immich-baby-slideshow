@@ -21,6 +21,16 @@ describe("password hashing", () => {
     }
   });
 
+  it("rejects non-canonical Base64url hash segments", async () => {
+    const hash = await hashPassword("family secret");
+    const [algorithm, salt, key] = hash.split("$");
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    const lastCharacterIndex = alphabet.indexOf(key!.at(-1)!);
+    const nonCanonicalKey = `${key!.slice(0, -1)}${alphabet[(lastCharacterIndex & 0b110000) | 1]}`;
+
+    await expect(verifyPassword("family secret", `${algorithm}$${salt}$${nonCanonicalKey}`)).resolves.toBe(false);
+  });
+
   it("rejects empty passwords when hashing", async () => {
     await expect(hashPassword("")).rejects.toThrow(/empty/i);
   });

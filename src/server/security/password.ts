@@ -16,7 +16,7 @@ function deriveKey(password: string, salt: Buffer): Promise<Buffer> {
 function decodeSegment(value: string, expectedLength: number): Buffer | undefined {
   if (!/^[A-Za-z0-9_-]+$/.test(value)) return undefined;
   const decoded = Buffer.from(value, "base64url");
-  return decoded.length === expectedLength ? decoded : undefined;
+  return decoded.length === expectedLength && decoded.toString("base64url") === value ? decoded : undefined;
 }
 
 export async function hashPassword(password: string): Promise<string> {
