@@ -2,7 +2,8 @@
   "extends": "./tsconfig.server.json",
   "compilerOptions": {
     "rootDir": ".",
-    "noEmit": true
+    "noEmit": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
   "include": ["scripts/**/*.ts", "tests/**/*.ts"]
 }

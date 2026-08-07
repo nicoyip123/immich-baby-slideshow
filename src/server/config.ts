@@ -33,7 +33,7 @@ export const envSchema = z.object({
   TRUSTED_PROXY_CIDRS: z.string().max(4096).default(""),
   DATABASE_PATH: z.string().default("/data/stats.sqlite"),
   SOUNDTRACK_PATH: z.string().default("/music/soundtrack.mp3"),
-  GA4_MEASUREMENT_ID: z.string().regex(/^G-[A-Z0-9]+$/).optional(),
+  GA4_MEASUREMENT_ID: z.preprocess((value) => value === "" ? undefined : value, z.string().regex(/^G-[A-Z0-9]+$/).optional()),
   PHOTO_DURATION_MS: z.coerce.number().int().min(3000).max(30000).default(7000),
   SESSION_DURATION_SECONDS: z.coerce.number().int().min(300).max(2_592_000).default(604800)
 });

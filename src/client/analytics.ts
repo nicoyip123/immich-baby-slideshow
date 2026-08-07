@@ -1,0 +1,7 @@
+export type Consent="granted"|"denied"|null;
+const key="baby-slideshow-analytics";
+declare global { interface Window { dataLayer?:unknown[]; gtag?:(...args:unknown[])=>void } }
+export const readConsent=():Consent=>{const value=window.localStorage.getItem(key);return value==="granted"||value==="denied"?value:null};
+export function setConsent(value:Exclude<Consent,null>,measurementId?:string){window.localStorage.setItem(key,value);if(value==="granted"&&measurementId)loadAnalytics(measurementId);if(value==="denied")document.cookie.split(";").map(v=>v.split("=")[0]?.trim()).filter(v=>v?.startsWith("_ga")).forEach(v=>document.cookie=`${v}=; Max-Age=0; Path=/; SameSite=Strict`);}
+export function loadAnalytics(id:string){if(readConsent()!=="granted"||document.querySelector("script[data-ga4]"))return;window.dataLayer=[];window.gtag=(...args)=>window.dataLayer!.push(args);window.gtag("consent","default",{analytics_storage:"granted",ad_storage:"denied",ad_user_data:"denied",ad_personalization:"denied"});window.gtag("js",new Date());window.gtag("config",id,{allow_google_signals:false});const script=document.createElement("script");script.async=true;script.dataset.ga4="true";script.src=`https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(id)}`;document.head.append(script);}
+export function track(event:"page_view"|"slideshow_started"){if(readConsent()==="granted")window.gtag?.("event",event);}
