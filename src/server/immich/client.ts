@@ -7,11 +7,11 @@ export class ImmichResponseError extends Error {
   constructor(readonly status: number) { super("Photo library returned an invalid response"); this.name = "ImmichResponseError"; }
 }
 
-interface ClientOptions { baseUrl: string; apiKey: string; timeoutMs?: number; pageSize?: number }
+interface ClientOptions { baseUrl: string; apiKey: string; timeoutMs?: number }
 const SAFE_HEADERS = ["content-type", "content-length", "content-range", "accept-ranges", "etag", "last-modified"];
 
 export interface ImmichPort {
-  listFavourites(albumId: string): Promise<SlideshowAsset[]>;
+  listLikedAlbumAssets(albumId: string): Promise<SlideshowAsset[]>;
   fetchThumbnail(id: string): Promise<UpstreamMedia>;
   fetchOriginal(id: string, range?: string): Promise<UpstreamMedia>;
   fetchVideoPlayback(id: string, range?: string): Promise<UpstreamMedia>;
@@ -20,11 +20,9 @@ export interface ImmichPort {
 export class ImmichClient implements ImmichPort {
   private readonly baseUrl: string;
   private readonly timeoutMs: number;
-  private readonly pageSize: number;
   constructor(private readonly options: ClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, "");
     this.timeoutMs = options.timeoutMs ?? 10_000;
-    this.pageSize = options.pageSize ?? 1000;
   }
 
   private async request(path: string, init: RequestInit = {}): Promise<Response> {
@@ -43,37 +41,41 @@ export class ImmichClient implements ImmichPort {
     }
   }
 
-  async listFavourites(albumId: string): Promise<SlideshowAsset[]> {
-    const output: SlideshowAsset[] = [];
-    let page = 1;
-    while (true) {
-      const response = await this.request("/search/metadata", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ isFavorite: true, albumIds: [albumId], withExif: true, page, size: this.pageSize })
-      });
-      if (!response.ok) throw new ImmichResponseError(response.status);
-      let value: unknown;
-      try { value = await response.json(); } catch { throw new ImmichResponseError(response.status); }
-      const assets = (value as { assets?: { items?: unknown[]; nextPage?: string | null } })?.assets;
-      if (!assets || !Array.isArray(assets.items)) throw new ImmichResponseError(response.status);
-      for (const raw of assets.items) {
-        const item = raw as Record<string, unknown>;
-        if (typeof item.id !== "string" || (item.type !== "IMAGE" && item.type !== "VIDEO")) continue;
-        const capturedAt = typeof item.localDateTime === "string" ? item.localDateTime : item.fileCreatedAt;
-        if (typeof capturedAt !== "string") continue;
-        output.push({
-          id: item.id,
-          type: item.type as AssetType,
-          capturedAt,
-          durationMs: typeof item.duration === "number" ? item.duration : null
-        });
-      }
-      if (!assets.nextPage) break;
-      const next = Number(assets.nextPage);
-      page = Number.isInteger(next) && next > page ? next : page + 1;
+  async listLikedAlbumAssets(albumId: string): Promise<SlideshowAsset[]> {
+    const [albumResponse, activityResponse] = await Promise.all([
+      this.request(`/albums/${encodeURIComponent(albumId)}`),
+      this.request(`/activities?albumId=${encodeURIComponent(albumId)}&type=like`)
+    ]);
+    if (!albumResponse.ok) throw new ImmichResponseError(albumResponse.status);
+    if (!activityResponse.ok) throw new ImmichResponseError(activityResponse.status);
+
+    let albumValue: unknown;
+    let activityValue: unknown;
+    try {
+      [albumValue, activityValue] = await Promise.all([albumResponse.json(), activityResponse.json()]);
+    } catch {
+      throw new ImmichResponseError(502);
     }
-    return output;
+    const assets = (albumValue as { assets?: unknown[] })?.assets;
+    if (!Array.isArray(assets) || !Array.isArray(activityValue)) throw new ImmichResponseError(502);
+
+    const likedIds = new Set(activityValue.flatMap((raw) => {
+      const activity = raw as Record<string, unknown>;
+      return activity.type === "like" && typeof activity.assetId === "string" ? [activity.assetId] : [];
+    }));
+    return assets.flatMap((raw) => {
+      const item = raw as Record<string, unknown>;
+      if (typeof item.id !== "string" || !likedIds.has(item.id)) return [];
+      if (item.type !== "IMAGE" && item.type !== "VIDEO") return [];
+      const capturedAt = typeof item.localDateTime === "string" ? item.localDateTime : item.fileCreatedAt;
+      if (typeof capturedAt !== "string") return [];
+      return [{
+        id: item.id,
+        type: item.type as AssetType,
+        capturedAt,
+        durationMs: typeof item.duration === "number" ? item.duration : null
+      }];
+    });
   }
 
   private async media(path: string, range?: string): Promise<UpstreamMedia> {

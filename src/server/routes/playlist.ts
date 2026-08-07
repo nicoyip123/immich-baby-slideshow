@@ -10,7 +10,7 @@ import { requireConfiguredOrigin } from "../security/origin.js";
 export async function playlistRoutes(app: FastifyInstance, options: { config: AppConfig; immich: ImmichPort; impressions: ImpressionCodec; family: preHandlerHookHandler }) {
   app.post("/api/playlist", { onRequest: requireConfiguredOrigin(options.config.publicOrigin), preHandler: options.family }, async (_request, reply) => {
     try {
-      const assets = await options.immich.listFavourites(options.config.immichAlbumId);
+      const assets = await options.immich.listLikedAlbumAssets(options.config.immichAlbumId);
       return { playlistId: randomBytes(18).toString("base64url"), photoDurationMs: options.config.photoDurationMs, items: shuffled(assets).map((asset) => ({
         id: asset.id, type: asset.type, durationMs: asset.durationMs,
         ageLabel: formatBabyAge(options.config.babyBirthDate, asset.capturedAt, options.config.timezone),

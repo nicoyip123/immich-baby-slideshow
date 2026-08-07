@@ -21,7 +21,7 @@ describe("slideshow backend routes", () => {
   async function setup() {
     const calls: string[] = [];
     const immich: ImmichPort = {
-      async listFavourites(albumId) { calls.push(`album:${albumId}`); return [
+      async listLikedAlbumAssets(albumId) { calls.push(`album:${albumId}`); return [
         { id: "photo-1", type: "IMAGE", capturedAt: "2025-04-01T10:00:00", durationMs: null },
         { id: "video-1", type: "VIDEO", capturedAt: "2025-05-01T10:00:00", durationMs: 1200 }
       ]; },

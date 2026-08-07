@@ -1,36 +1,41 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ImmichClient, ImmichResponseError, ImmichUnavailableError } from "../../src/server/immich/client.js";
 
-const responses = [
-  { assets: { items: [{ id: "image-1", type: "IMAGE", localDateTime: "2025-01-03T10:00:00", duration: null }], nextPage: "2" } },
-  { assets: { items: [{ id: "video-1", type: "VIDEO", fileCreatedAt: "2025-02-04T10:00:00Z", duration: 4200 }, { id: "other", type: "AUDIO" }], nextPage: null } }
-];
 const albumId = "7f2a70a8-0f37-4b39-9d97-46d26d53f210";
+const album = { assets: [
+  { id: "image-1", type: "IMAGE", localDateTime: "2025-01-03T10:00:00", duration: null },
+  { id: "video-1", type: "VIDEO", fileCreatedAt: "2025-02-04T10:00:00Z", duration: 4200 },
+  { id: "unliked", type: "IMAGE", fileCreatedAt: "2025-03-04T10:00:00Z" },
+  { id: "audio-1", type: "AUDIO", fileCreatedAt: "2025-04-04T10:00:00Z" }
+] };
+const activities = [
+  { type: "like", assetId: "image-1" },
+  { type: "like", assetId: "image-1" },
+  { type: "like", assetId: "video-1" },
+  { type: "like", assetId: "removed-from-album" },
+  { type: "like", assetId: null },
+  { type: "comment", assetId: "unliked" }
+];
 
 describe("ImmichClient", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("retrieves and normalizes every favourite image and video page", async () => {
+  it("intersects current album assets with unique asset-level likes", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(new Response(JSON.stringify(responses[0]), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify(responses[1]), { status: 200 }));
-    const client = new ImmichClient({ baseUrl: "http://immich:2283", apiKey: "secret-key", pageSize: 1 });
+      .mockResolvedValueOnce(new Response(JSON.stringify(album), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(activities), { status: 200 }));
+    const client = new ImmichClient({ baseUrl: "http://immich:2283", apiKey: "secret-key" });
 
-    await expect(client.listFavourites(albumId)).resolves.toEqual([
+    await expect(client.listLikedAlbumAssets(albumId)).resolves.toEqual([
       { id: "image-1", type: "IMAGE", capturedAt: "2025-01-03T10:00:00", durationMs: null },
       { id: "video-1", type: "VIDEO", capturedAt: "2025-02-04T10:00:00Z", durationMs: 4200 }
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls[0]![1]).toMatchObject({ method: "POST", headers: { "content-type": "application/json", "x-api-key": "secret-key" } });
-    for (const [index, call] of fetchMock.mock.calls.entries()) {
-      expect(JSON.parse(String(call[1]?.body))).toMatchObject({
-        isFavorite: true,
-        albumIds: [albumId],
-        withExif: true,
-        page: index + 1,
-        size: 1
-      });
-    }
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      `http://immich:2283/api/albums/${albumId}`,
+      `http://immich:2283/api/activities?albumId=${albumId}&type=like`
+    ]);
+    expect(fetchMock.mock.calls.every(([, init]) => new Headers(init?.headers).get("x-api-key") === "secret-key")).toBe(true);
   });
 
   it("forwards ranges and exposes only safe media headers", async () => {
@@ -45,11 +50,13 @@ describe("ImmichClient", () => {
   });
 
   it("maps network and HTTP failures without exposing private details", async () => {
-    vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("connect http://immich:2283 secret-key"));
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("connect http://immich:2283 secret-key"));
     const client = new ImmichClient({ baseUrl: "http://immich:2283", apiKey: "secret-key" });
-    await expect(client.listFavourites(albumId)).rejects.toBeInstanceOf(ImmichUnavailableError);
-    vi.mocked(fetch).mockResolvedValueOnce(new Response("private body", { status: 500 }));
-    const error = await client.listFavourites(albumId).catch((caught: unknown) => caught);
+    await expect(client.listLikedAlbumAssets(albumId)).rejects.toBeInstanceOf(ImmichUnavailableError);
+    fetchMock.mockReset()
+      .mockResolvedValueOnce(new Response("private body", { status: 500 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(activities), { status: 200 }));
+    const error = await client.listLikedAlbumAssets(albumId).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(ImmichResponseError);
     expect(String(error)).not.toMatch(/immich:2283|secret-key|private body/i);
   });
