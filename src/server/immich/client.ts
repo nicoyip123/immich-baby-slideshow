@@ -56,8 +56,9 @@ export class ImmichClient implements ImmichPort {
     } catch {
       throw new ImmichResponseError(502);
     }
-    const assets = (albumValue as { assets?: unknown[] })?.assets;
-    if (!Array.isArray(assets) || !Array.isArray(activityValue)) throw new ImmichResponseError(502);
+    if (!Array.isArray(activityValue)) throw new ImmichResponseError(502);
+    const embeddedAssets = (albumValue as { assets?: unknown[] } | null)?.assets;
+    const assets = Array.isArray(embeddedAssets) ? embeddedAssets : await this.searchAlbumAssets(albumId);
 
     const likedIds = new Set(activityValue.flatMap((raw) => {
       const activity = raw as Record<string, unknown>;
@@ -76,6 +77,31 @@ export class ImmichClient implements ImmichPort {
         durationMs: typeof item.duration === "number" ? item.duration : null
       }];
     });
+  }
+
+  private async searchAlbumAssets(albumId: string): Promise<unknown[]> {
+    const assets: unknown[] = [];
+    const seenPages = new Set<number>();
+    let page = 1;
+    while (!seenPages.has(page)) {
+      seenPages.add(page);
+      const response = await this.request("/search/metadata", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ albumIds: [albumId], page, size: 1000 })
+      });
+      if (!response.ok) throw new ImmichResponseError(response.status);
+      let value: unknown;
+      try { value = await response.json(); } catch { throw new ImmichResponseError(502); }
+      const result = (value as { assets?: { items?: unknown[]; nextPage?: unknown } } | null)?.assets;
+      if (!result || !Array.isArray(result.items)) throw new ImmichResponseError(502);
+      assets.push(...result.items);
+      if (result.nextPage === null || result.nextPage === undefined) return assets;
+      const nextPage = Number(result.nextPage);
+      if (!Number.isSafeInteger(nextPage) || nextPage < 1) throw new ImmichResponseError(502);
+      page = nextPage;
+    }
+    throw new ImmichResponseError(502);
   }
 
   private async media(path: string, range?: string): Promise<UpstreamMedia> {

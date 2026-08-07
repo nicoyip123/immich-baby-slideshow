@@ -38,6 +38,32 @@ describe("ImmichClient", () => {
     expect(fetchMock.mock.calls.every(([, init]) => new Headers(init?.headers).get("x-api-key") === "secret-key")).toBe(true);
   });
 
+  it("loads every album asset page when album details omit embedded assets", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ assetCount: 3 }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(activities), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ assets: {
+        items: [album.assets[0], album.assets[2]], nextPage: "2"
+      }}), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ assets: {
+        items: [album.assets[1]], nextPage: null
+      }}), { status: 200 }));
+    const client = new ImmichClient({ baseUrl: "http://immich:2283", apiKey: "secret-key" });
+
+    await expect(client.listLikedAlbumAssets(albumId)).resolves.toEqual([
+      { id: "image-1", type: "IMAGE", capturedAt: "2025-01-03T10:00:00", durationMs: null },
+      { id: "video-1", type: "VIDEO", capturedAt: "2025-02-04T10:00:00Z", durationMs: 4200 }
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    for (const [callIndex, page] of [[2, 1], [3, 2]] as const) {
+      const [url, init] = fetchMock.mock.calls[callIndex]!;
+      expect(String(url)).toBe("http://immich:2283/api/search/metadata");
+      expect(init?.method).toBe("POST");
+      expect(new Headers(init?.headers).get("content-type")).toBe("application/json");
+      expect(JSON.parse(String(init?.body))).toEqual({ albumIds: [albumId], page, size: 1000 });
+    }
+  });
+
   it("forwards ranges and exposes only safe media headers", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("bytes", {
       status: 206,
