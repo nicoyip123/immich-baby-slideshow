@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { z } from "zod";
 import { isStoredPasswordHash } from "./security/password.js";
 
@@ -10,6 +11,7 @@ export interface AppConfig {
   timezone: string;
   sessionSecret: string;
   publicOrigin: string;
+  trustedProxyCidrs: string[];
   databasePath: string;
   soundtrackPath: string;
   ga4MeasurementId?: string;
@@ -28,11 +30,12 @@ export const envSchema = z.object({
   TZ: z.string().default("Australia/Melbourne"),
   SESSION_SECRET: z.string().min(32),
   PUBLIC_ORIGIN: z.string().url(),
+  TRUSTED_PROXY_CIDRS: z.string().max(4096).default(""),
   DATABASE_PATH: z.string().default("/data/stats.sqlite"),
   SOUNDTRACK_PATH: z.string().default("/music/soundtrack.mp3"),
   GA4_MEASUREMENT_ID: z.string().regex(/^G-[A-Z0-9]+$/).optional(),
   PHOTO_DURATION_MS: z.coerce.number().int().min(3000).max(30000).default(7000),
-  SESSION_DURATION_SECONDS: z.coerce.number().int().min(300).default(604800)
+  SESSION_DURATION_SECONDS: z.coerce.number().int().min(300).max(2_592_000).default(604800)
 });
 
 function isCalendarDate(value: string): boolean {
@@ -95,6 +98,33 @@ function formatSchemaError(error: z.ZodError): Error {
   return new Error(error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; "));
 }
 
+function parseTrustedProxyCidrs(value: string): string[] {
+  if (value.trim() === "") return [];
+  const entries = value.split(",").map((entry) => entry.trim());
+  if (entries.length > 64 || entries.some((entry) => entry.length === 0)) {
+    throw new Error("TRUSTED_PROXY_CIDRS must contain 1 to 64 literal IP or CIDR entries");
+  }
+
+  for (const entry of entries) {
+    const slash = entry.indexOf("/");
+    const address = slash === -1 ? entry : entry.slice(0, slash);
+    const family = isIP(address);
+    if (family === 0) throw new Error("TRUSTED_PROXY_CIDRS must contain only literal IP or CIDR entries");
+    if (slash !== -1) {
+      const prefix = entry.slice(slash + 1);
+      const maxPrefix = family === 4 ? 32 : 128;
+      if (entry.indexOf("/", slash + 1) !== -1 || !/^\d+$/.test(prefix)) {
+        throw new Error("TRUSTED_PROXY_CIDRS contains a malformed CIDR");
+      }
+      const prefixLength = Number(prefix);
+      if (prefixLength < 1 || prefixLength > maxPrefix) {
+        throw new Error("TRUSTED_PROXY_CIDRS must not trust a blanket or malformed CIDR");
+      }
+    }
+  }
+  return entries;
+}
+
 export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
   const parsed = envSchema.safeParse(env);
   if (!parsed.success) throw formatSchemaError(parsed.error);
@@ -118,6 +148,7 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
     timezone: parsed.data.TZ,
     sessionSecret: parsed.data.SESSION_SECRET,
     publicOrigin: publicOrigin.origin,
+    trustedProxyCidrs: parseTrustedProxyCidrs(parsed.data.TRUSTED_PROXY_CIDRS),
     databasePath: parsed.data.DATABASE_PATH,
     soundtrackPath: parsed.data.SOUNDTRACK_PATH,
     ga4MeasurementId: parsed.data.GA4_MEASUREMENT_ID,

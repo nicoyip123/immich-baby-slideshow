@@ -16,6 +16,7 @@ const config: AppConfig = {
   timezone: "Australia/Melbourne",
   sessionSecret,
   publicOrigin,
+  trustedProxyCidrs: [],
   databasePath: "/tmp/test.sqlite",
   soundtrackPath: "/tmp/test.mp3",
   ga4MeasurementId: undefined,
@@ -50,6 +51,11 @@ function malformedCredentialRequests() {
       payload: ""
     },
     {
+      name: "invalid content length",
+      headers: { "content-type": "application/json", "content-length": "100" },
+      payload: "{}"
+    },
+    {
       name: "unsupported content type",
       headers: { "content-type": "application/xml" },
       payload: "<password>secret</password>"
@@ -57,7 +63,7 @@ function malformedCredentialRequests() {
     {
       name: "oversized JSON body",
       headers: { "content-type": "application/json" },
-      payload: JSON.stringify({ password: "x".repeat(1024 * 1024) })
+      payload: JSON.stringify({ password: "x".repeat(8192) })
     },
     {
       name: "malformed JSON body",
@@ -72,6 +78,16 @@ function malformedCredentialRequests() {
   ];
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("authentication boundary", () => {
   const apps: TestApp[] = [];
   let now = Date.UTC(2026, 7, 7, 12, 0, 0);
@@ -80,20 +96,25 @@ describe("authentication boundary", () => {
     mode?: "test" | "production";
     logger?: BuildAppOptions["logger"];
     probes?: boolean;
+    trustedProxyCidrs?: string[];
+    maxConcurrentPasswordVerifications?: number;
+    verifyPassword?: (password: string, hash: string) => Promise<boolean>;
   } = {}): Promise<TestApp> {
     const app = await buildApp({
       mode: options.mode ?? "test",
-      config,
+      config: { ...config, trustedProxyCidrs: options.trustedProxyCidrs ?? [] },
       logger: options.logger,
       dependencies: {
         now: () => now,
         generateNonce: () => Buffer.alloc(24, 9),
-        verifyPassword: async (password: string, hash: string) => testPasswords.get(hash) === password
+        verifyPassword: options.verifyPassword ?? (async (password: string, hash: string) => testPasswords.get(hash) === password),
+        maxConcurrentPasswordVerifications: options.maxConcurrentPasswordVerifications
       },
       registerRoutes: options.probes
         ? async (instance, guards) => {
             instance.get("/probe/family", { preHandler: guards.requireFamilySession }, async () => ({ ok: true }));
             instance.get("/probe/admin", { preHandler: guards.requireAdminSession }, async () => ({ ok: true }));
+            instance.get("/probe/ip", async (request) => ({ ip: request.ip }));
           }
         : undefined
     });
@@ -216,7 +237,7 @@ describe("authentication boundary", () => {
   it("counts mixed malformed credential requests toward the shared role/IP quota", async () => {
     const app = await makeApp();
     const firstFive: Array<{ statusCode: number; body: unknown }> = [];
-    for (const malformed of malformedCredentialRequests()) {
+    for (const malformed of malformedCredentialRequests().slice(0, 5)) {
       const response = await app.inject({
         method: "POST",
         url: "/api/auth/admin",
@@ -241,6 +262,152 @@ describe("authentication boundary", () => {
       })),
       sixth: { statusCode: 429, body: { error: "Please try again later" } }
     });
+  });
+
+  it("rejects a concurrent login for the same role/IP before another verification starts", async () => {
+    const firstVerification = deferred<boolean>();
+    const firstStarted = deferred<void>();
+    let verificationCalls = 0;
+    const app = await makeApp({
+      verifyPassword: async () => {
+        verificationCalls += 1;
+        if (verificationCalls === 1) firstStarted.resolve();
+        return verificationCalls === 1 ? firstVerification.promise : true;
+      }
+    });
+
+    const first = login(app, "family", "family secret", "192.0.2.60");
+    await firstStarted.promise;
+    const concurrent = await login(app, "family", "family secret", "192.0.2.60");
+    expect(concurrent.statusCode).toBe(429);
+    expect(concurrent.json()).toEqual({ error: "Please try again later" });
+    expect(verificationCalls).toBe(1);
+
+    firstVerification.resolve(true);
+    expect((await first).statusCode).toBe(200);
+    expect((await login(app, "family", "family secret", "192.0.2.60")).statusCode).toBe(200);
+    expect(verificationCalls).toBe(2);
+  });
+
+  it("bounds global verification concurrency and releases permits after false, throw, and success", async () => {
+    const failed = deferred<boolean>();
+    const thrown = deferred<boolean>();
+    let verificationCalls = 0;
+    const app = await makeApp({
+      maxConcurrentPasswordVerifications: 2,
+      verifyPassword: async () => {
+        verificationCalls += 1;
+        if (verificationCalls === 1) return failed.promise;
+        if (verificationCalls === 2) return thrown.promise;
+        return true;
+      }
+    });
+
+    const first = login(app, "family", "family secret", "192.0.2.61");
+    const second = login(app, "admin", "admin secret", "192.0.2.62");
+    await Promise.resolve();
+    await Promise.resolve();
+    const saturated = await login(app, "family", "family secret", "192.0.2.63");
+    expect(saturated.statusCode).toBe(429);
+    expect(saturated.json()).toEqual({ error: "Please try again later" });
+    expect(verificationCalls).toBe(2);
+
+    failed.resolve(false);
+    expect((await first).statusCode).toBe(401);
+    expect((await login(app, "family", "family secret", "192.0.2.61")).statusCode).toBe(200);
+
+    thrown.reject(new Error("verification failed"));
+    expect((await second).statusCode).toBe(401);
+    expect((await login(app, "admin", "admin secret", "192.0.2.62")).statusCode).toBe(200);
+    expect((await login(app, "family", "family secret", "192.0.2.66")).statusCode).toBe(200);
+    expect(verificationCalls).toBe(5);
+  });
+
+  it("shares the default verification permit bound across app compositions in the process", async () => {
+    const pending = Array.from({ length: 4 }, () => deferred<boolean>());
+    const fourStarted = deferred<void>();
+    let verificationCalls = 0;
+    const verifyPassword = async () => {
+      verificationCalls += 1;
+      if (verificationCalls === 4) fourStarted.resolve();
+      return verificationCalls <= 4 ? pending[verificationCalls - 1]!.promise : true;
+    };
+    const firstApp = await makeApp({ verifyPassword });
+    const secondApp = await makeApp({ verifyPassword });
+
+    const active = [
+      login(firstApp, "family", "family secret", "192.0.2.91"),
+      login(firstApp, "admin", "admin secret", "192.0.2.92"),
+      login(firstApp, "family", "family secret", "192.0.2.93"),
+      login(firstApp, "admin", "admin secret", "192.0.2.94")
+    ];
+    await fourStarted.promise;
+
+    const excess = await login(secondApp, "family", "family secret", "192.0.2.95");
+    expect(excess.statusCode).toBe(429);
+    expect(excess.json()).toEqual({ error: "Please try again later" });
+    expect(verificationCalls).toBe(4);
+
+    for (const attempt of pending) attempt.resolve(true);
+    expect((await Promise.all(active)).map((response) => response.statusCode)).toEqual([200, 200, 200, 200]);
+  });
+
+  it("rejects overlong UTF-8 passwords before verification and counts them as failures", async () => {
+    let verificationCalls = 0;
+    const app = await makeApp({
+      verifyPassword: async () => {
+        verificationCalls += 1;
+        return true;
+      }
+    });
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/auth/family",
+        headers: { origin: publicOrigin },
+        payload: { password: "😀".repeat(257) },
+        remoteAddress: "192.0.2.70"
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({ error: "Authentication failed" });
+    }
+    expect((await login(app, "family", "family secret", "192.0.2.70")).statusCode).toBe(429);
+    expect(verificationCalls).toBe(0);
+  });
+
+  it("adds private no-store caching to success and failure auth responses", async () => {
+    const app = await makeApp();
+    const responses = [
+      await app.inject({ url: "/api/auth/family/status" }),
+      await login(app, "family", "wrong", "192.0.2.80"),
+      await app.inject({ method: "POST", url: "/api/auth/family/logout", headers: { origin: publicOrigin } }),
+      await app.inject({ method: "POST", url: "/api/auth/admin", payload: { password: "admin secret" } })
+    ];
+    for (const response of responses) {
+      expect(response.headers["cache-control"]).toBe("private, no-store");
+    }
+  });
+
+  it("rejects unnecessary bodies on status and logout routes", async () => {
+    const app = await makeApp();
+    const status = await app.inject({
+      method: "GET",
+      url: "/api/auth/family/status",
+      headers: { "content-type": "text/plain" },
+      payload: "x"
+    });
+    const logout = await app.inject({
+      method: "POST",
+      url: "/api/auth/admin/logout",
+      headers: { origin: publicOrigin, "content-type": "text/plain" },
+      payload: "x"
+    });
+
+    expect(status.statusCode).toBe(400);
+    expect(logout.statusCode).toBe(400);
+    expect(status.headers["cache-control"]).toBe("private, no-store");
+    expect(logout.headers["cache-control"]).toBe("private, no-store");
   });
 
   it("clears failures on success and isolates counters by role and request.ip", async () => {
@@ -294,6 +461,29 @@ describe("authentication boundary", () => {
     });
     expect(malformedWithoutOrigin.statusCode).toBe(403);
     expect(malformedWithoutOrigin.json()).toEqual({ error: "Request not allowed" });
+  });
+
+  it("trusts forwarded client IPs only from configured IPv4 and IPv6 proxy ranges", async () => {
+    const untrusted = await makeApp({ probes: true, trustedProxyCidrs: ["10.0.0.0/8"] });
+    expect((await untrusted.inject({
+      url: "/probe/ip",
+      remoteAddress: "203.0.113.10",
+      headers: { "x-forwarded-for": "198.51.100.20" }
+    })).json()).toEqual({ ip: "203.0.113.10" });
+
+    const trustedIpv4 = await makeApp({ probes: true, trustedProxyCidrs: ["10.0.0.0/8"] });
+    expect((await trustedIpv4.inject({
+      url: "/probe/ip",
+      remoteAddress: "10.1.2.3",
+      headers: { "x-forwarded-for": "198.51.100.20, 10.9.8.7" }
+    })).json()).toEqual({ ip: "198.51.100.20" });
+
+    const trustedIpv6 = await makeApp({ probes: true, trustedProxyCidrs: ["fd00::/8"] });
+    expect((await trustedIpv6.inject({
+      url: "/probe/ip",
+      remoteAddress: "fd00::1",
+      headers: { "x-forwarded-for": "2001:db8::123" }
+    })).json()).toEqual({ ip: "2001:db8::123" });
   });
 
   it("keeps family/admin status and reusable guards role-isolated", async () => {

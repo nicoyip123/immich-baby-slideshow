@@ -96,9 +96,15 @@ export function createSessionCodec(options: SessionCodecOptions): SessionCodec {
         throw new Error("Session nonce must contain between 16 and 64 bytes");
       }
 
+      const nowSeconds = Math.floor(now() / 1000);
+      const expiry = nowSeconds + options.durationSeconds;
+      if (!Number.isSafeInteger(nowSeconds) || !Number.isSafeInteger(expiry)) {
+        throw new Error("Session expiry is outside the safe integer range");
+      }
+
       const payload: SessionPayload = {
         role,
-        exp: Math.floor(now() / 1000) + options.durationSeconds,
+        exp: expiry,
         nonce: nonceBytes.toString("base64url")
       };
       const encodedPayload = Buffer.from(JSON.stringify(payload)).toString("base64url");

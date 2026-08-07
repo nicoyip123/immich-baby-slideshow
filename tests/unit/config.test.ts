@@ -25,6 +25,7 @@ describe("parseConfig", () => {
       timezone: "Australia/Melbourne",
       sessionSecret: "a-session-secret-that-is-at-least-32-characters",
       publicOrigin: "https://slideshow.example.com",
+      trustedProxyCidrs: [],
       databasePath: "/data/stats.sqlite",
       soundtrackPath: "/music/soundtrack.mp3",
       ga4MeasurementId: undefined,
@@ -124,5 +125,29 @@ describe("parseConfig", () => {
     expect(() => parseConfig(validEnv({ GA4_MEASUREMENT_ID: "UA-123" }))).toThrow(/GA4_MEASUREMENT_ID/);
     expect(() => parseConfig(validEnv({ PHOTO_DURATION_MS: "2999" }))).toThrow(/PHOTO_DURATION_MS/);
     expect(() => parseConfig(validEnv({ SESSION_DURATION_SECONDS: "299" }))).toThrow(/SESSION_DURATION_SECONDS/);
+    expect(() => parseConfig(validEnv({ SESSION_DURATION_SECONDS: "2592001" }))).toThrow(/SESSION_DURATION_SECONDS/);
+  });
+
+  it("parses a bounded list of literal trusted proxy IPs and CIDRs", () => {
+    expect(
+      parseConfig(validEnv({
+        TRUSTED_PROXY_CIDRS: " 10.0.0.0/8,192.0.2.10, fd00::/8,2001:db8::1 "
+      })).trustedProxyCidrs
+    ).toEqual(["10.0.0.0/8", "192.0.2.10", "fd00::/8", "2001:db8::1"]);
+
+    for (const value of [
+      "*",
+      "true",
+      "0.0.0.0/0",
+      "::/0",
+      "proxy.internal",
+      "10.0.0.0/33",
+      "fd00::/129",
+      "10.0.0.1/abc",
+      "10.0.0.1,",
+      Array.from({ length: 65 }, (_, index) => `192.0.2.${index}`).join(",")
+    ]) {
+      expect(() => parseConfig(validEnv({ TRUSTED_PROXY_CIDRS: value }))).toThrow(/TRUSTED_PROXY_CIDRS/);
+    }
   });
 });

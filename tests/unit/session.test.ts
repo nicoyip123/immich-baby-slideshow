@@ -93,4 +93,15 @@ describe("session tokens", () => {
 
     expect(() => weakCodec.issue("family")).toThrow(/nonce/i);
   });
+
+  it("rejects unsafe expiry arithmetic when issuing a token", () => {
+    const unsafeCodec = createSessionCodec({
+      secret,
+      durationSeconds: 600,
+      now: () => Number.MAX_SAFE_INTEGER * 1000,
+      generateNonce: () => nonce
+    });
+
+    expect(() => unsafeCodec.issue("family")).toThrow(/expiry/i);
+  });
 });

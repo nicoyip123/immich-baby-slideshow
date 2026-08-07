@@ -14,6 +14,30 @@ export interface FailedLoginLimiterOptions {
   maxEntries?: number;
 }
 
+export interface ImmediatePermitPool {
+  tryAcquire(): (() => void) | undefined;
+}
+
+export function createImmediatePermitPool(capacity = 4): ImmediatePermitPool {
+  if (!Number.isInteger(capacity) || capacity < 1 || capacity > 64) {
+    throw new Error("Password verification permit capacity must be between 1 and 64");
+  }
+  let active = 0;
+  return {
+    tryAcquire() {
+      if (active >= capacity) return undefined;
+      active += 1;
+      let released = false;
+      return () => {
+        if (!released) {
+          released = true;
+          active -= 1;
+        }
+      };
+    }
+  };
+}
+
 interface FailureEntry {
   timestamps: number[];
   lastSeen: number;

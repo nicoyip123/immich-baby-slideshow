@@ -2,10 +2,13 @@ import type {
   FastifyInstance,
   FastifyReply,
   FastifyRequest,
+  onRequestHookHandler,
+  onResponseHookHandler,
+  onSendHookHandler,
   preHandlerHookHandler
 } from "fastify";
 import type { AppConfig } from "../config.js";
-import type { FailedLoginLimiter } from "../security/login-attempts.js";
+import type { FailedLoginLimiter, ImmediatePermitPool } from "../security/login-attempts.js";
 import { requireConfiguredOrigin } from "../security/origin.js";
 import type { SessionCodec, SessionRole } from "../security/session.js";
 
@@ -20,6 +23,7 @@ const MALFORMED_CREDENTIAL_ERROR_CODES = new Set([
   "FST_ERR_CTP_BODY_TOO_LARGE",
   "FST_ERR_CTP_EMPTY_JSON_BODY",
   "FST_ERR_CTP_INVALID_JSON_BODY",
+  "FST_ERR_CTP_INVALID_CONTENT_LENGTH",
   "FST_ERR_CTP_INVALID_MEDIA_TYPE"
 ]);
 
@@ -32,6 +36,7 @@ export interface AuthRouteOptions {
   config: AppConfig;
   sessions: SessionCodec;
   failedLogins: FailedLoginLimiter;
+  passwordVerificationPermits: ImmediatePermitPool;
   verifyPassword: (password: string, storedHash: string) => Promise<boolean>;
 }
 
@@ -76,6 +81,23 @@ export async function registerAuthRoutes(
   options: AuthRouteOptions
 ): Promise<AuthGuards> {
   const originGuard = requireConfiguredOrigin(options.config.publicOrigin);
+  const inFlightKeys = new Set<string>();
+  const inFlightReleases = new WeakMap<FastifyRequest, () => void>();
+  const noStore: onSendHookHandler = async (_request, reply, payload) => {
+    reply.header("cache-control", "private, no-store");
+    return payload;
+  };
+  const rejectRequestBody: onRequestHookHandler = async (request, reply) => {
+    if (
+      (request.headers["content-length"] !== undefined && request.headers["content-length"] !== "0") ||
+      request.headers["transfer-encoding"] !== undefined
+    ) {
+      return reply.code(400).send({ error: "Request not allowed" });
+    }
+  };
+  const releaseInFlight: onResponseHookHandler = async (request) => {
+    inFlightReleases.get(request)?.();
+  };
   const cookieOptions = Object.freeze({
     httpOnly: true,
     secure: true,
@@ -92,9 +114,28 @@ export async function registerAuthRoutes(
       options.failedLogins.recordFailure(role, request.ip);
       return reply.code(400).send(AUTHENTICATION_FAILURE_BODY);
     };
+    const admitLogin: onRequestHookHandler = async (request, reply) => {
+      if (options.failedLogins.isBlocked(role, request.ip)) {
+        return reply.code(429).send(RATE_LIMIT_BODY);
+      }
+      const key = `${role}\0${request.ip}`;
+      if (inFlightKeys.has(key)) return reply.code(429).send(RATE_LIMIT_BODY);
+      inFlightKeys.add(key);
+      let released = false;
+      inFlightReleases.set(request, () => {
+        if (!released) {
+          released = true;
+          inFlightKeys.delete(key);
+          inFlightReleases.delete(request);
+        }
+      });
+    };
 
     app.post(`/api/auth/${role}`, {
-      onRequest: originGuard,
+      bodyLimit: 8 * 1024,
+      onRequest: [originGuard, admitLogin],
+      onSend: noStore,
+      onResponse: releaseInFlight,
       errorHandler(error, request, reply) {
         if (MALFORMED_CREDENTIAL_ERROR_CODES.has(error.code)) {
           return rejectMalformedCredential(request, reply);
@@ -103,20 +144,20 @@ export async function registerAuthRoutes(
       }
     }, async (request, reply) => {
       const clientIp = request.ip;
-      if (options.failedLogins.isBlocked(role, clientIp)) {
-        return reply.code(429).send(RATE_LIMIT_BODY);
-      }
-
       const password = readCredential(request.body);
-      if (password === undefined) {
+      if (password === undefined || Buffer.byteLength(password, "utf8") > 1024) {
         return rejectMalformedCredential(request, reply);
       }
 
+      const releasePermit = options.passwordVerificationPermits.tryAcquire();
+      if (!releasePermit) return reply.code(429).send(RATE_LIMIT_BODY);
       let authenticated = false;
       try {
         authenticated = await options.verifyPassword(password, storedHashFor(options.config, role));
       } catch {
         authenticated = false;
+      } finally {
+        releasePermit();
       }
       if (!authenticated) {
         options.failedLogins.recordFailure(role, clientIp);
@@ -129,12 +170,20 @@ export async function registerAuthRoutes(
         .send(SUCCESS_BODY);
     });
 
-    app.get(`/api/auth/${role}/status`, async (request) => {
+    app.get(`/api/auth/${role}/status`, {
+      bodyLimit: 1,
+      onRequest: rejectRequestBody,
+      onSend: noStore
+    }, async (request) => {
       const token = request.cookies[cookieNameFor(role)];
       return { authenticated: token !== undefined && options.sessions.verify(token, role) };
     });
 
-    app.post(`/api/auth/${role}/logout`, { onRequest: originGuard }, async (_request, reply) => {
+    app.post(`/api/auth/${role}/logout`, {
+      bodyLimit: 1,
+      onRequest: [originGuard, rejectRequestBody],
+      onSend: noStore
+    }, async (_request, reply) => {
       return reply.clearCookie(cookieNameFor(role), cookieOptions).send(SUCCESS_BODY);
     });
   }
