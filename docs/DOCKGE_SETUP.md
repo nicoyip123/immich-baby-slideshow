@@ -2,7 +2,9 @@
 
 ## 1. Prepare Immich
 
-In Immich user settings, create a dedicated API key with only asset read/search permissions. Find the Docker network used by the Immich server in its Dockge stack; the usual name resembles `immich_default`.
+In Immich user settings, create the API key under a user who is a member of the shared album. Grant only `asset.read`, `asset.view`, and `asset.download`. Open the shared album in Immich and copy its UUID from the browser URL into `IMMICH_ALBUM_ID`. The slideshow selects only images and videos that are both favourites and members of that album.
+
+Find the Docker network used by the Immich server in its Dockge stack; the usual name resembles `immich_default`.
 
 ## 2. Configure the stack
 
@@ -12,7 +14,7 @@ Copy `.env.example` to `.env`. Generate the two passwords interactively so plain
 npm run hash-password
 ```
 
-Run it once for the family password and once for the separate admin password. Keep each generated hash inside single quotes in `.env` so Docker Compose treats its `$` characters literally. Generate `SESSION_SECRET` with at least 32 random characters. Set the baby birth date, public HTTPS origin, Immich network, and internal Immich service URL. Never commit `.env`.
+Run it once for the family password and once for the separate admin password. Keep each generated hash inside single quotes in `.env` so Docker Compose treats its `$` characters literally. Generate `SESSION_SECRET` with at least 32 random characters. Set the shared album UUID, baby birth date, public HTTPS origin, Immich network, and internal Immich service URL. Never commit `.env`.
 
 Put a user-owned or properly licensed MP3 at `music/soundtrack.mp3`. When no GA4 ID is supplied, Google Analytics and its consent prompt remain disabled.
 
@@ -24,7 +26,7 @@ Create/import this directory as a stack, inspect `compose.yaml`, and deploy. The
 
 - the public hostname shows the family password page;
 - the public hostname cannot route to Immich;
-- a newly favourited image/video appears after pressing Begin again;
+- a newly favourited image/video from the configured shared album appears after pressing Begin again;
 - `/admin` accepts only the separate admin password;
 - declining analytics creates no Google network requests.
 
