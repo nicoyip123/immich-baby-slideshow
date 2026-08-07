@@ -66,6 +66,10 @@ function isPrivateImmichHost(hostname: string): boolean {
 }
 
 function parseHttpOrigin(value: string, field: "IMMICH_URL" | "PUBLIC_ORIGIN"): URL {
+  if (value.includes("?") || value.includes("#")) {
+    throw new Error(field === "IMMICH_URL" ? "IMMICH_URL must be a private Immich URL" : "PUBLIC_ORIGIN must be an origin only");
+  }
+
   let url: URL;
   try {
     url = new URL(value);

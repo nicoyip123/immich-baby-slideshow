@@ -44,6 +44,13 @@ describe("parseConfig", () => {
     }
   });
 
+  it("rejects raw empty query strings and fragments before URL normalization", () => {
+    expect(() => parseConfig(validEnv({ IMMICH_URL: "http://immich-server:2283?" }))).toThrow(/private Immich URL/);
+    expect(() => parseConfig(validEnv({ IMMICH_URL: "http://immich-server:2283#" }))).toThrow(/private Immich URL/);
+    expect(() => parseConfig(validEnv({ PUBLIC_ORIGIN: "https://example.com?" }))).toThrow(/PUBLIC_ORIGIN/);
+    expect(() => parseConfig(validEnv({ PUBLIC_ORIGIN: "https://example.com#" }))).toThrow(/PUBLIC_ORIGIN/);
+  });
+
   it("accepts private Docker, loopback, RFC1918, IPv6 ULA, and internal Immich targets", () => {
     for (const url of [
       "http://immich-server:2283",
