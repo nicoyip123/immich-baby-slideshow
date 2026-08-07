@@ -11,7 +11,7 @@ interface ClientOptions { baseUrl: string; apiKey: string; timeoutMs?: number; p
 const SAFE_HEADERS = ["content-type", "content-length", "content-range", "accept-ranges", "etag", "last-modified"];
 
 export interface ImmichPort {
-  listFavourites(): Promise<SlideshowAsset[]>;
+  listFavourites(albumId: string): Promise<SlideshowAsset[]>;
   fetchThumbnail(id: string): Promise<UpstreamMedia>;
   fetchOriginal(id: string, range?: string): Promise<UpstreamMedia>;
   fetchVideoPlayback(id: string, range?: string): Promise<UpstreamMedia>;
@@ -43,14 +43,14 @@ export class ImmichClient implements ImmichPort {
     }
   }
 
-  async listFavourites(): Promise<SlideshowAsset[]> {
+  async listFavourites(albumId: string): Promise<SlideshowAsset[]> {
     const output: SlideshowAsset[] = [];
     let page = 1;
     while (true) {
       const response = await this.request("/search/metadata", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ isFavorite: true, withExif: true, page, size: this.pageSize })
+        body: JSON.stringify({ isFavorite: true, albumIds: [albumId], withExif: true, page, size: this.pageSize })
       });
       if (!response.ok) throw new ImmichResponseError(response.status);
       let value: unknown;

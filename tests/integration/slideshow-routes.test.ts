@@ -21,7 +21,7 @@ describe("slideshow backend routes", () => {
   async function setup() {
     const calls: string[] = [];
     const immich: ImmichPort = {
-      async listFavourites() { return [
+      async listFavourites(albumId) { calls.push(`album:${albumId}`); return [
         { id: "photo-1", type: "IMAGE", capturedAt: "2025-04-01T10:00:00", durationMs: null },
         { id: "video-1", type: "VIDEO", capturedAt: "2025-05-01T10:00:00", durationMs: 1200 }
       ]; },
@@ -43,12 +43,13 @@ describe("slideshow backend routes", () => {
   }
 
   it("creates an authenticated mixed playlist with local URLs and age labels", async () => {
-    const { app, family } = await setup();
+    const { app, family, calls } = await setup();
     expect((await app.inject({ method: "POST", url: "/api/playlist", headers: { origin } })).statusCode).toBe(401);
     const response = await app.inject({ method: "POST", url: "/api/playlist", headers: { origin, cookie: family } });
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(body.items).toHaveLength(2);
+    expect(calls).toContain(`album:${config.immichAlbumId}`);
     expect(body.items.map((item: { type: string }) => item.type).sort()).toEqual(["IMAGE", "VIDEO"]);
     expect(JSON.stringify(body)).not.toContain("immich:2283");
     expect(body.items.every((item: { impressionToken: string; mediaUrl: string }) => item.impressionToken && item.mediaUrl.startsWith("/api/media/"))).toBe(true);
