@@ -124,14 +124,14 @@ describe("create-family-link owner tool", () => {
     expect(result.stderr).not.toMatch(/[a-f0-9]{64}/);
   });
 
-  it("runs the compiled owner tool through a symlink", () => {
+  it("runs the source owner tool through a symlink", () => {
     const directory = mkdtempSync(join(tmpdir(), "create-family-link-"));
-    const symlinkPath = join(directory, "create-family-link.js");
-    const compiledTool = join(projectRoot, "dist/server/tools/create-family-link.js");
+    const symlinkPath = join(directory, "create-family-link.ts");
+    const sourceTool = join(projectRoot, "src/server/tools/create-family-link.ts");
 
     try {
-      symlinkSync(compiledTool, symlinkPath);
-      const result = spawnSync(process.execPath, [symlinkPath], {
+      symlinkSync(sourceTool, symlinkPath);
+      const result = spawnSync(process.execPath, ["--import", "tsx", symlinkPath], {
         cwd: projectRoot,
         env: { ...process.env, PUBLIC_ORIGIN: "https://baby.example.com" },
         encoding: "utf8"
