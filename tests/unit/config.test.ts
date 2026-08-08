@@ -24,6 +24,7 @@ describe("parseConfig", () => {
       immichAlbumId: albumId,
       familyPasswordHash: storedHash,
       adminPasswordHash: storedHash,
+      familyLinkTokenHash: undefined,
       babyBirthDate: "2025-08-07",
       timezone: "Australia/Melbourne",
       sessionSecret: "a-session-secret-that-is-at-least-32-characters",
@@ -108,6 +109,23 @@ describe("parseConfig", () => {
     ]) {
       expect(() => parseConfig(validEnv({ FAMILY_PASSWORD_HASH: passwordHash }))).toThrow(/FAMILY_PASSWORD_HASH/);
       expect(() => parseConfig(validEnv({ ADMIN_PASSWORD_HASH: passwordHash }))).toThrow(/ADMIN_PASSWORD_HASH/);
+    }
+  });
+
+  it("parses an optional canonical family link token hash", () => {
+    const familyLinkTokenHash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    expect(parseConfig(validEnv({ FAMILY_LINK_TOKEN_HASH: familyLinkTokenHash })).familyLinkTokenHash).toBe(familyLinkTokenHash);
+    expect(parseConfig(validEnv({ FAMILY_LINK_TOKEN_HASH: "" })).familyLinkTokenHash).toBeUndefined();
+
+    for (const value of [
+      familyLinkTokenHash.toUpperCase(),
+      ` ${familyLinkTokenHash}`,
+      `${familyLinkTokenHash} `,
+      familyLinkTokenHash.slice(1),
+      `${familyLinkTokenHash}0`,
+      "g".repeat(64)
+    ]) {
+      expect(() => parseConfig(validEnv({ FAMILY_LINK_TOKEN_HASH: value }))).toThrow(/FAMILY_LINK_TOKEN_HASH/);
     }
   });
 

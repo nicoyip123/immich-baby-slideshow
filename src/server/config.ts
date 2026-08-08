@@ -1,6 +1,7 @@
 import { isIP } from "node:net";
 import { z } from "zod";
 import { isStoredPasswordHash } from "./security/password.js";
+import { isFamilyLinkHash } from "./security/family-link.js";
 
 export interface AppConfig {
   immichUrl: string;
@@ -8,6 +9,7 @@ export interface AppConfig {
   immichAlbumId: string;
   familyPasswordHash: string;
   adminPasswordHash: string;
+  familyLinkTokenHash?: string;
   babyBirthDate: string;
   timezone: string;
   sessionSecret: string;
@@ -28,6 +30,10 @@ export const envSchema = z.object({
   IMMICH_ALBUM_ID: z.string().uuid(),
   FAMILY_PASSWORD_HASH: z.string().refine(isStoredPasswordHash, "must be a canonical scrypt stored hash"),
   ADMIN_PASSWORD_HASH: z.string().refine(isStoredPasswordHash, "must be a canonical scrypt stored hash"),
+  FAMILY_LINK_TOKEN_HASH: z.preprocess(
+    (value) => value === "" || value === undefined ? undefined : value,
+    z.string().refine(isFamilyLinkHash, "must be a canonical lowercase 64-hex token hash").optional()
+  ),
   BABY_BIRTH_DATE: z.string().regex(isoDatePattern, "must use YYYY-MM-DD"),
   TZ: z.string().default("Australia/Melbourne"),
   SESSION_SECRET: z.string().min(32),
@@ -147,6 +153,7 @@ export function parseConfig(env: NodeJS.ProcessEnv): AppConfig {
     immichAlbumId: parsed.data.IMMICH_ALBUM_ID,
     familyPasswordHash: parsed.data.FAMILY_PASSWORD_HASH,
     adminPasswordHash: parsed.data.ADMIN_PASSWORD_HASH,
+    familyLinkTokenHash: parsed.data.FAMILY_LINK_TOKEN_HASH,
     babyBirthDate: parsed.data.BABY_BIRTH_DATE,
     timezone: parsed.data.TZ,
     sessionSecret: parsed.data.SESSION_SECRET,
