@@ -3,11 +3,16 @@ import { createConnection } from "node:net";
 import type { AddressInfo } from "node:net";
 import { buildApp, type BuildAppOptions } from "../../src/server/app.js";
 import type { AppConfig } from "../../src/server/config.js";
+import { hashFamilyLinkToken } from "../../src/server/security/family-link.js";
 
 const publicOrigin = "https://slideshow.example.com";
 const familyHash = "family-hash-leak-marker";
 const adminHash = "admin-hash-leak-marker";
 const sessionSecret = "session-secret-leak-marker-at-least-32-characters";
+const familyLinkToken = "ab".repeat(32);
+const familyLinkTokenHash = hashFamilyLinkToken(familyLinkToken);
+const rotatedFamilyLinkToken = "cd".repeat(32);
+const rotatedFamilyLinkTokenHash = hashFamilyLinkToken(rotatedFamilyLinkToken);
 
 const config: AppConfig = {
   immichUrl: "http://immich-server:2283",
@@ -81,6 +86,61 @@ function malformedCredentialRequests() {
   ];
 }
 
+function malformedFamilyLinkRequests() {
+  return [
+    {
+      name: "empty JSON body",
+      headers: { "content-type": "application/json" },
+      payload: ""
+    },
+    {
+      name: "invalid content length",
+      headers: { "content-type": "application/json", "content-length": "100" },
+      payload: "{}"
+    },
+    {
+      name: "unsupported content type",
+      headers: { "content-type": "application/xml" },
+      payload: `<token>${familyLinkToken}</token>`
+    },
+    {
+      name: "oversized JSON body",
+      headers: { "content-type": "application/json" },
+      payload: JSON.stringify({ token: "x".repeat(8192) })
+    },
+    {
+      name: "malformed JSON body",
+      headers: { "content-type": "application/json" },
+      payload: '{"token":'
+    },
+    {
+      name: "missing token",
+      headers: { "content-type": "application/json" },
+      payload: JSON.stringify({})
+    },
+    {
+      name: "empty token",
+      headers: { "content-type": "application/json" },
+      payload: JSON.stringify({ token: "" })
+    },
+    {
+      name: "non-string token",
+      headers: { "content-type": "application/json" },
+      payload: JSON.stringify({ token: 123 })
+    },
+    {
+      name: "non-canonical token",
+      headers: { "content-type": "application/json" },
+      payload: JSON.stringify({ token: familyLinkToken.toUpperCase() })
+    },
+    {
+      name: "extra property",
+      headers: { "content-type": "application/json" },
+      payload: JSON.stringify({ token: familyLinkToken, extra: true })
+    }
+  ];
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (error: Error) => void;
@@ -100,12 +160,17 @@ describe("authentication boundary", () => {
     logger?: BuildAppOptions["logger"];
     probes?: boolean;
     trustedProxyCidrs?: string[];
+    familyLinkTokenHash?: string;
     maxConcurrentPasswordVerifications?: number;
     verifyPassword?: (password: string, hash: string) => Promise<boolean>;
   } = {}): Promise<TestApp> {
     const app = await buildApp({
       mode: options.mode ?? "test",
-      config: { ...config, trustedProxyCidrs: options.trustedProxyCidrs ?? [] },
+      config: {
+        ...config,
+        trustedProxyCidrs: options.trustedProxyCidrs ?? [],
+        familyLinkTokenHash: options.familyLinkTokenHash
+      },
       logger: options.logger,
       dependencies: {
         now: () => now,
@@ -140,6 +205,20 @@ describe("authentication boundary", () => {
     });
   }
 
+  async function exchangeFamilyLink(
+    app: TestApp,
+    token: string,
+    remoteAddress = "192.0.2.1"
+  ) {
+    return app.inject({
+      method: "POST",
+      url: "/api/auth/family-link",
+      headers: { origin: publicOrigin },
+      payload: { token },
+      remoteAddress
+    });
+  }
+
   afterEach(async () => {
     await Promise.all(apps.splice(0).map((app) => app.close()));
     now = Date.UTC(2026, 7, 7, 12, 0, 0);
@@ -165,6 +244,184 @@ describe("authentication boundary", () => {
     const adminCookie = setCookieHeader(adminResponse);
     expect(adminCookie).toContain("admin_session=");
     expect(adminCookie).not.toContain("family_session=");
+  });
+
+  it("exchanges the exact family-link token for a hardened 30-day family-only session", async () => {
+    const app = await makeApp({ familyLinkTokenHash, probes: true });
+    const response = await exchangeFamilyLink(app, familyLinkToken);
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ success: true });
+    expect(response.headers["cache-control"]).toBe("private, no-store");
+    const setCookie = setCookieHeader(response);
+    expect(setCookie).toContain("family_session=");
+    expect(setCookie).not.toContain("admin_session=");
+    expect(setCookie).toMatch(/Max-Age=2592000/i);
+    expect(setCookie).toMatch(/Path=\//i);
+    expect(setCookie).toMatch(/HttpOnly/i);
+    expect(setCookie).toMatch(/Secure/i);
+    expect(setCookie).toMatch(/SameSite=Strict/i);
+
+    const familyCookie = cookiePair(setCookie);
+    const familySession = familyCookie.slice("family_session=".length);
+    expect((await app.inject({
+      url: "/api/auth/family/status",
+      headers: { cookie: familyCookie }
+    })).json()).toEqual({ authenticated: true });
+    expect((await app.inject({
+      url: "/probe/family",
+      headers: { cookie: familyCookie }
+    })).statusCode).toBe(200);
+    expect((await app.inject({
+      url: "/api/auth/admin/status",
+      headers: { cookie: `admin_session=${familySession}` }
+    })).json()).toEqual({ authenticated: false });
+    expect((await app.inject({
+      url: "/probe/admin",
+      headers: { cookie: `admin_session=${familySession}` }
+    })).statusCode).toBe(401);
+
+    now += 2_592_000 * 1000 - 1;
+    expect((await app.inject({
+      url: "/api/auth/family/status",
+      headers: { cookie: familyCookie }
+    })).json()).toEqual({ authenticated: true });
+    now += 1;
+    expect((await app.inject({
+      url: "/api/auth/family/status",
+      headers: { cookie: familyCookie }
+    })).json()).toEqual({ authenticated: false });
+
+    const logout = await app.inject({
+      method: "POST",
+      url: "/api/auth/family/logout",
+      headers: { origin: publicOrigin, cookie: familyCookie }
+    });
+    expect(logout.statusCode).toBe(200);
+    expect(setCookieHeader(logout)).toMatch(/family_session=.*Max-Age=0/i);
+  });
+
+  it("returns only generic failures for wrong and malformed family-link exchanges", async () => {
+    const app = await makeApp({ familyLinkTokenHash });
+    const wrongToken = "ef".repeat(32);
+    const wrong = await exchangeFamilyLink(app, wrongToken, "192.0.2.100");
+    expect(wrong.statusCode).toBe(401);
+    expect(wrong.json()).toEqual({ error: "Authentication failed" });
+    expect(wrong.body).not.toContain(wrongToken);
+    expect(wrong.headers["cache-control"]).toBe("private, no-store");
+
+    let client = 101;
+    for (const malformed of malformedFamilyLinkRequests()) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/auth/family-link",
+        headers: { origin: publicOrigin, ...malformed.headers },
+        payload: malformed.payload,
+        remoteAddress: `192.0.2.${client++}`
+      });
+      expect({ name: malformed.name, statusCode: response.statusCode, body: response.json() }).toEqual({
+        name: malformed.name,
+        statusCode: 400,
+        body: { error: "Authentication failed" }
+      });
+      expect(response.headers["cache-control"]).toBe("private, no-store");
+      expect(response.body).not.toContain(familyLinkToken);
+      expect(response.body).not.toContain(familyLinkTokenHash);
+    }
+  });
+
+  it("requires the exact configured Origin for family-link exchange", async () => {
+    const app = await makeApp({ familyLinkTokenHash });
+    for (const origin of [
+      undefined,
+      "null",
+      "https://evil.example",
+      "http://slideshow.example.com",
+      "https://slideshow.example.com:444",
+      "https://slideshow.example.com, https://evil.example"
+    ]) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/auth/family-link",
+        headers: origin === undefined ? {} : { origin },
+        payload: { token: familyLinkToken }
+      });
+      expect(response.statusCode).toBe(403);
+      expect(response.json()).toEqual({ error: "Request not allowed" });
+      expect(response.body).not.toContain(familyLinkToken);
+    }
+    expect((await exchangeFamilyLink(app, familyLinkToken)).statusCode).toBe(200);
+  });
+
+  it("rate-limits family-link failures without consuming the password-login quota", async () => {
+    const app = await makeApp({ familyLinkTokenHash });
+    const remoteAddress = "192.0.2.120";
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const response = await exchangeFamilyLink(app, "ef".repeat(32), remoteAddress);
+      expect(response.statusCode).toBe(401);
+    }
+    const limited = await exchangeFamilyLink(app, familyLinkToken, remoteAddress);
+    expect(limited.statusCode).toBe(429);
+    expect(limited.json()).toEqual({ error: "Please try again later" });
+
+    const passwordLogin = await login(app, "family", "family secret", remoteAddress);
+    expect(passwordLogin.statusCode).toBe(200);
+  });
+
+  it("leaves the disabled family-link route as a generic not-found endpoint", async () => {
+    const app = await makeApp();
+    const response = await exchangeFamilyLink(app, familyLinkToken);
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toMatchObject({ statusCode: 404, error: "Not Found" });
+    expect(response.body).not.toContain(familyLinkToken);
+    expect(response.body).not.toContain(familyLinkTokenHash);
+  });
+
+  it("revokes link sessions on hash rotation without invalidating password family sessions", async () => {
+    const original = await makeApp({ familyLinkTokenHash });
+    const rotated = await makeApp({ familyLinkTokenHash: rotatedFamilyLinkTokenHash, probes: true });
+    const linkCookie = cookiePair(setCookieHeader(await exchangeFamilyLink(original, familyLinkToken)));
+    const passwordCookie = cookiePair(setCookieHeader(await login(original, "family", "family secret")));
+
+    expect((await rotated.inject({
+      url: "/api/auth/family/status",
+      headers: { cookie: linkCookie }
+    })).json()).toEqual({ authenticated: false });
+    expect((await rotated.inject({
+      url: "/api/auth/family/status",
+      headers: { cookie: passwordCookie }
+    })).json()).toEqual({ authenticated: true });
+    expect((await rotated.inject({
+      url: "/probe/family",
+      headers: { cookie: linkCookie }
+    })).statusCode).toBe(401);
+    expect((await rotated.inject({
+      url: "/probe/family",
+      headers: { cookie: passwordCookie }
+    })).statusCode).toBe(200);
+  });
+
+  it("does not expose family-link tokens or hashes in response bodies or captured logs", async () => {
+    let logs = "";
+    const wrongToken = "ef".repeat(32);
+    const app = await makeApp({
+      mode: "production",
+      familyLinkTokenHash,
+      logger: {
+        level: "info",
+        stream: { write: (chunk: string) => { logs += chunk; } }
+      }
+    });
+    const successful = await exchangeFamilyLink(app, familyLinkToken, "192.0.2.130");
+    const failed = await exchangeFamilyLink(app, wrongToken, "192.0.2.131");
+    const publicOutput = `${successful.body}\n${failed.body}\n${logs}`;
+
+    expect(successful.statusCode).toBe(200);
+    expect(failed.statusCode).toBe(401);
+    for (const secret of [familyLinkToken, wrongToken, familyLinkTokenHash]) {
+      expect(publicOutput).not.toContain(secret);
+    }
   });
 
   it("returns the same public failure for invalid and malformed credentials", async () => {

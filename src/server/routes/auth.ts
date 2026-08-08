@@ -8,6 +8,7 @@ import type {
   preHandlerHookHandler
 } from "fastify";
 import type { AppConfig } from "../config.js";
+import { isFamilyLinkToken, verifyFamilyLinkToken } from "../security/family-link.js";
 import type { FailedLoginLimiter, ImmediatePermitPool } from "../security/login-attempts.js";
 import { requireConfiguredOrigin } from "../security/origin.js";
 import type { SessionCodec, SessionRole } from "../security/session.js";
@@ -35,6 +36,11 @@ export interface AuthGuards {
 export interface AuthRouteOptions {
   config: AppConfig;
   sessions: SessionCodec;
+  familyLink?: {
+    tokenHash: string;
+    sessions: SessionCodec;
+    failedLogins: FailedLoginLimiter;
+  };
   failedLogins: FailedLoginLimiter;
   passwordVerificationPermits: ImmediatePermitPool;
   verifyPassword: (password: string, storedHash: string) => Promise<boolean>;
@@ -57,6 +63,15 @@ function readCredential(body: unknown): string | undefined {
     : undefined;
 }
 
+function readFamilyLinkToken(body: unknown): string | undefined {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return undefined;
+  const record = body as Record<string, unknown>;
+  const keys = Object.keys(record);
+  return keys.length === 1 && keys[0] === "token" && typeof record.token === "string" && isFamilyLinkToken(record.token)
+    ? record.token
+    : undefined;
+}
+
 function sessionGuard(role: SessionRole, sessions: SessionCodec): preHandlerHookHandler {
   return async (request, reply) => {
     const token = request.cookies[cookieNameFor(role)];
@@ -66,9 +81,25 @@ function sessionGuard(role: SessionRole, sessions: SessionCodec): preHandlerHook
   };
 }
 
+function verifyFamilySession(
+  token: string,
+  sessions: SessionCodec,
+  familyLinkSessions?: SessionCodec
+): boolean {
+  return sessions.verify(token, "family") || (familyLinkSessions?.verify(token, "family") ?? false);
+}
+
 /** Reusable family-session guard for later playlist and media routes. */
-export function requireFamilySession(sessions: SessionCodec): preHandlerHookHandler {
-  return sessionGuard("family", sessions);
+export function requireFamilySession(
+  sessions: SessionCodec,
+  familyLinkSessions?: SessionCodec
+): preHandlerHookHandler {
+  return async (request, reply) => {
+    const token = request.cookies[FAMILY_SESSION_COOKIE];
+    if (!token || !verifyFamilySession(token, sessions, familyLinkSessions)) {
+      return reply.code(401).send(AUTHENTICATION_REQUIRED_BODY);
+    }
+  };
 }
 
 /** Reusable admin-session guard for later statistics routes. */
@@ -105,6 +136,53 @@ export async function registerAuthRoutes(
     path: "/",
     maxAge: options.config.sessionDurationSeconds
   });
+  if (options.familyLink) {
+    const familyLink = options.familyLink;
+    const rejectMalformedFamilyLink = (request: FastifyRequest, reply: FastifyReply) => {
+      if (familyLink.failedLogins.isBlocked("family", request.ip)) {
+        return reply.code(429).send(RATE_LIMIT_BODY);
+      }
+      familyLink.failedLogins.recordFailure("family", request.ip);
+      return reply.code(400).send(AUTHENTICATION_FAILURE_BODY);
+    };
+    const admitFamilyLink: onRequestHookHandler = async (request, reply) => {
+      if (familyLink.failedLogins.isBlocked("family", request.ip)) {
+        return reply.code(429).send(RATE_LIMIT_BODY);
+      }
+    };
+    const familyLinkCookieOptions = Object.freeze({
+      httpOnly: true,
+      secure: true,
+      sameSite: "strict" as const,
+      path: "/",
+      maxAge: 2_592_000
+    });
+
+    app.post("/api/auth/family-link", {
+      bodyLimit: 8 * 1024,
+      onRequest: [originGuard, admitFamilyLink],
+      onSend: noStore,
+      errorHandler(error, request, reply) {
+        if (MALFORMED_CREDENTIAL_ERROR_CODES.has(error.code)) {
+          return rejectMalformedFamilyLink(request, reply);
+        }
+        throw error;
+      }
+    }, async (request, reply) => {
+      const token = readFamilyLinkToken(request.body);
+      if (token === undefined) return rejectMalformedFamilyLink(request, reply);
+
+      if (!verifyFamilyLinkToken(token, familyLink.tokenHash)) {
+        familyLink.failedLogins.recordFailure("family", request.ip);
+        return reply.code(401).send(AUTHENTICATION_FAILURE_BODY);
+      }
+
+      familyLink.failedLogins.recordSuccess("family", request.ip);
+      return reply
+        .setCookie(FAMILY_SESSION_COOKIE, familyLink.sessions.issue("family"), familyLinkCookieOptions)
+        .send(SUCCESS_BODY);
+    });
+  }
 
   for (const role of ["family", "admin"] as const) {
     const rejectMalformedCredential = (request: FastifyRequest, reply: FastifyReply) => {
@@ -181,7 +259,13 @@ export async function registerAuthRoutes(
       onSend: noStore
     }, async (request) => {
       const token = request.cookies[cookieNameFor(role)];
-      return { authenticated: token !== undefined && options.sessions.verify(token, role) };
+      return {
+        authenticated: token !== undefined && (
+          role === "family"
+            ? verifyFamilySession(token, options.sessions, options.familyLink?.sessions)
+            : options.sessions.verify(token, "admin")
+        )
+      };
     });
 
     app.post(`/api/auth/${role}/logout`, {
@@ -194,7 +278,7 @@ export async function registerAuthRoutes(
   }
 
   return {
-    requireFamilySession: requireFamilySession(options.sessions),
+    requireFamilySession: requireFamilySession(options.sessions, options.familyLink?.sessions),
     requireAdminSession: requireAdminSession(options.sessions)
   };
 }
