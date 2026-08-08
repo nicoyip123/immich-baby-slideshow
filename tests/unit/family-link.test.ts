@@ -1,4 +1,7 @@
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
@@ -51,6 +54,12 @@ describe("family link token primitives", () => {
     expect(() => deriveFamilyLinkSessionSecret(sessionSecret, "not-a-hash")).toThrow(/canonical/i);
   });
 
+  it("derives the fixed HMAC session secret for the canonical hash fixture", () => {
+    expect(deriveFamilyLinkSessionSecret("s".repeat(32), canonicalHash)).toBe(
+      "ZK93umQh_zo6Mp4SVUhAwHbjFxCLYCQQElqjR3tScNA"
+    );
+  });
+
   it("creates a deterministic link from exactly 32 random bytes", () => {
     const bytes = Buffer.from(Array.from({ length: 32 }, (_, index) => index));
 
@@ -89,6 +98,13 @@ describe("create-family-link owner tool", () => {
       "https://baby.example.com?preview=1",
       "https://baby.example.com#family=old",
       "https://baby.example.com/slideshow",
+      "https://baby.example.com/slideshow/..",
+      "https://baby.example.com/%2e",
+      "https:////baby.example.com",
+      " https://baby.example.com",
+      "https://baby.example.com ",
+      "https://BABY.example.com",
+      "https://baby.example.com:443",
       "not a URL"
     ]) {
       expect(() => normalizeFamilyLinkPublicOrigin(value)).toThrow(/PUBLIC_ORIGIN/);
@@ -106,5 +122,27 @@ describe("create-family-link owner tool", () => {
     expect(result.stdout).toBe("");
     expect(result.stderr).toMatch(/PUBLIC_ORIGIN/);
     expect(result.stderr).not.toMatch(/[a-f0-9]{64}/);
+  });
+
+  it("runs the compiled owner tool through a symlink", () => {
+    const directory = mkdtempSync(join(tmpdir(), "create-family-link-"));
+    const symlinkPath = join(directory, "create-family-link.js");
+    const compiledTool = join(projectRoot, "dist/server/tools/create-family-link.js");
+
+    try {
+      symlinkSync(compiledTool, symlinkPath);
+      const result = spawnSync(process.execPath, [symlinkPath], {
+        cwd: projectRoot,
+        env: { ...process.env, PUBLIC_ORIGIN: "https://baby.example.com" },
+        encoding: "utf8"
+      });
+
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(result.stdout.trimEnd().split("\n")).toHaveLength(2);
+      expect(result.stdout).toMatch(/^FAMILY_LINK_TOKEN_HASH='[a-f0-9]{64}'\nFAMILY_LINK_URL='https:\/\/baby\.example\.com\/#family=[a-f0-9]{64}'\n$/);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });

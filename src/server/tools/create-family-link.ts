@@ -1,4 +1,5 @@
-import { pathToFileURL } from "node:url";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { createFamilyLink, type FamilyLink } from "../security/family-link.js";
 
 export function normalizeFamilyLinkPublicOrigin(value: string): string {
@@ -12,6 +13,9 @@ export function normalizeFamilyLinkPublicOrigin(value: string): string {
   }
 
   if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || url.pathname !== "/") {
+    throw new Error("PUBLIC_ORIGIN must be an HTTPS origin only");
+  }
+  if (value !== url.origin && value !== `${url.origin}/`) {
     throw new Error("PUBLIC_ORIGIN must be an HTTPS origin only");
   }
   return url.origin;
@@ -28,7 +32,13 @@ export function runCreateFamilyLink(publicOrigin: string = process.env.PUBLIC_OR
 
 function isDirectExecution(): boolean {
   const invokedScript = process.argv[1];
-  return invokedScript !== undefined && import.meta.url === pathToFileURL(invokedScript).href;
+  if (!invokedScript) return false;
+
+  try {
+    return realpathSync(invokedScript) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
 }
 
 if (isDirectExecution()) {
