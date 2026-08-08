@@ -60,6 +60,7 @@ describe("slideshow backend routes", () => {
     expect((await app.inject({ url: "/api/welcome" })).statusCode).toBe(401);
     const response = await app.inject({ url: "/api/welcome", headers: { cookie: family } });
     expect(response.statusCode).toBe(200);
+    expect(response.headers["cache-control"]).toBe("private, no-store");
     expect(response.json()).toEqual({
       eyebrow: "Seren’s little story",
       title: "From your very first days…",

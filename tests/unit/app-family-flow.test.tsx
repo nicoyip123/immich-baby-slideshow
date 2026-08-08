@@ -46,3 +46,18 @@ test("loads welcome copy only after family login",async()=>{
  expect(screen.queryByText(copy.eyebrow)).toBeTruthy();
  expect(screen.queryByText(copy.body)).toBeTruthy();
 });
+
+test("retries welcome copy after a temporary failure",async()=>{
+ const user=userEvent.setup();
+ clientApi.getWelcomeCopy.mockRejectedValueOnce(new Error("temporary")).mockResolvedValueOnce(copy);
+ render(<App/>);
+
+ await screen.findByRole("button",{name:"Enter"});
+ await user.type(screen.getByLabelText("Password"),"family password");
+ await user.click(screen.getByRole("button",{name:"Enter"}));
+
+ expect((await screen.findByRole("alert")).textContent).toBe("We couldn't load the welcome screen. Please try again.");
+ await user.click(screen.getByRole("button",{name:"Try again"}));
+ await waitFor(()=>expect(clientApi.getWelcomeCopy).toHaveBeenCalledTimes(2));
+ expect(await screen.findByRole("heading",{name:copy.title})).toBeTruthy();
+});

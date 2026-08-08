@@ -7,5 +7,5 @@ const welcomeCopy = Object.freeze({
 });
 
 export async function welcomeRoutes(app: FastifyInstance, options: { family: preHandlerHookHandler }) {
-  app.get("/api/welcome", { preHandler: options.family }, async () => welcomeCopy);
+  app.get("/api/welcome", { preHandler: options.family }, async (_request, reply) => reply.header("cache-control", "private, no-store").send(welcomeCopy));
 }
