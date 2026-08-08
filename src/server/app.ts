@@ -9,6 +9,7 @@ import { playlistRoutes } from "./routes/playlist.js";
 import { mediaRoutes } from "./routes/media.js";
 import { publicConfigRoutes } from "./routes/public-config.js";
 import { statsRoutes } from "./routes/stats.js";
+import { welcomeRoutes } from "./routes/welcome.js";
 import { createFailedLoginLimiter, createImmediatePermitPool } from "./security/login-attempts.js";
 import { verifyPassword } from "./security/password.js";
 import { createSessionCodec } from "./security/session.js";
@@ -78,6 +79,7 @@ export async function buildApp(options: BuildAppOptions) {
     const impressions = createImpressionCodec({ secret: options.config.sessionSecret, now });
     app.addHook("onClose", async () => database.close());
     await publicConfigRoutes(app, options.config);
+    await welcomeRoutes(app, { family: guards.requireFamilySession });
     await playlistRoutes(app, { config: options.config, immich, impressions, family: guards.requireFamilySession });
     await mediaRoutes(app, { immich, soundtrackPath: options.config.soundtrackPath, family: guards.requireFamilySession, admin: guards.requireAdminSession });
     await statsRoutes(app, { origin: options.config.publicOrigin, database, impressions, family: guards.requireFamilySession, admin: guards.requireAdminSession });

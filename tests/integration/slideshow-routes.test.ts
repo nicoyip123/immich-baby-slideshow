@@ -55,6 +55,18 @@ describe("slideshow backend routes", () => {
     expect(body.items.every((item: { impressionToken: string; mediaUrl: string }) => item.impressionToken && item.mediaUrl.startsWith("/api/media/"))).toBe(true);
   });
 
+  it("keeps the personalized welcome copy behind family authentication", async () => {
+    const { app, family } = await setup();
+    expect((await app.inject({ url: "/api/welcome" })).statusCode).toBe(401);
+    const response = await app.inject({ url: "/api/welcome", headers: { cookie: family } });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      eyebrow: "Seren’s little story",
+      title: "From your very first days…",
+      body: "A collection of tiny moments, growing smiles, and all the love that has surrounded you since the day you arrived."
+    });
+  });
+
   it("proxies family media ranges and keeps public config secret-free", async () => {
     const { app, family, calls } = await setup();
     const denied = await app.inject({ url: "/api/media/video-1/video" });

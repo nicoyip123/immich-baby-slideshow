@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createPlaylist, login } from "../../src/client/api.js";
+import { createPlaylist, getWelcomeCopy, login } from "../../src/client/api.js";
 
 describe("client API requests", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -31,5 +31,17 @@ describe("client API requests", () => {
     await login("family", "secret");
 
     expect(new Headers(request?.headers).get("content-type")).toBe("application/json");
+  });
+
+  it("fetches family-only welcome copy", async () => {
+    let url: RequestInfo | URL | undefined;
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+      url = input;
+      return new Response(JSON.stringify({ eyebrow: "A little story", title: "From the beginning", body: "Small moments, held close." }), { status: 200, headers: { "content-type": "application/json" } });
+    });
+
+    await getWelcomeCopy();
+
+    expect(url).toBe("/api/welcome");
   });
 });

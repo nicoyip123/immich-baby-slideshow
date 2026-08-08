@@ -4,14 +4,15 @@ import userEvent from "@testing-library/user-event";
 import {expect,test,vi} from "vitest";
 import {WelcomeScreen} from "../../src/client/WelcomeScreen.js";
 
-test("renders Seren's welcome copy and begins the journey",async()=>{
+test("renders the supplied welcome copy and begins the journey",async()=>{
  const onBegin=vi.fn();
  const user=userEvent.setup();
- render(<WelcomeScreen onBegin={onBegin}/>);
+ const copy={eyebrow:"A little story",title:"From the beginning",body:"Small moments, held close."};
+ render(<WelcomeScreen copy={copy} onBegin={onBegin}/>);
 
- expect(screen.queryByText("Seren’s little story")).toBeTruthy();
- expect(screen.queryByRole("heading",{name:"From your very first days…"})).toBeTruthy();
- expect(screen.queryByText("A collection of tiny moments, growing smiles, and all the love that has surrounded you since the day you arrived.")).toBeTruthy();
+ expect(screen.queryByText(copy.eyebrow)).toBeTruthy();
+ expect(screen.queryByRole("heading",{name:copy.title})).toBeTruthy();
+ expect(screen.queryByText(copy.body)).toBeTruthy();
  await user.click(screen.getByRole("button",{name:"Begin the journey"}));
  expect(onBegin).toHaveBeenCalledTimes(1);
 });

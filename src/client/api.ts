@@ -1,5 +1,6 @@
 export interface PlaylistItem { id:string; type:"IMAGE"|"VIDEO"; durationMs:number|null; ageLabel:string|null; impressionToken:string; mediaUrl:string; thumbnailUrl:string }
 export interface Playlist { playlistId:string; photoDurationMs:number; items:PlaylistItem[] }
+export interface WelcomeCopy { eyebrow:string; title:string; body:string }
 async function json<T>(url:string, init?:RequestInit):Promise<T>{
   const headers=new Headers(init?.headers);
   if(init?.body!==undefined&&init.body!==null&&init.body!==""&&!headers.has("content-type"))headers.set("content-type","application/json");
@@ -11,6 +12,7 @@ export const status=(role:"family"|"admin")=>json<{authenticated:boolean}>(`/api
 export const login=(role:"family"|"admin",password:string)=>json(`/api/auth/${role}`,{method:"POST",body:JSON.stringify({password})});
 export const logout=(role:"family"|"admin")=>json(`/api/auth/${role}/logout`,{method:"POST",body:""});
 export const createPlaylist=()=>json<Playlist>("/api/playlist",{method:"POST",body:""});
+export const getWelcomeCopy=()=>json<WelcomeCopy>("/api/welcome");
 export const countDisplay=(impressionToken:string)=>json("/api/stats/display",{method:"POST",body:JSON.stringify({impressionToken})});
 export const getStats=(period:string,type:string)=>json<{items:Array<{assetId:string;mediaType:string;periodCount:number;totalCount:number;lastDisplayedAt:string;thumbnailUrl:string}>}>(`/api/admin/stats?period=${period}&type=${type}`);
 export const resetStats=()=>json("/api/admin/stats",{method:"DELETE",body:JSON.stringify({confirmation:"RESET"})});
