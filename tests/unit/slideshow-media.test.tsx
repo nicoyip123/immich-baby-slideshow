@@ -203,6 +203,18 @@ describe("slideshow media integration",()=>{
   await waitFor(()=>expect(mixer.setTarget).toHaveBeenLastCalledWith(.15));
  });
 
+ test("auto-advances past a video whose autoplay is rejected",async()=>{
+  vi.mocked(HTMLMediaElement.prototype.play).mockRejectedValue(new Error("NotAllowedError"));
+  clientApi.createPlaylist.mockResolvedValue({...playlist,items:[second,first]});
+  mixerHarness();
+  const user=userEvent.setup();
+  render(<Slideshow welcomeCopy={welcomeCopy}/>);
+  await user.click(screen.getByRole("button",{name:"Begin the journey"}));
+
+  await waitFor(()=>expect(document.querySelector(".media-original")).toBeTruthy());
+  expect(document.querySelector("video")).toBeNull();
+ });
+
  test("transitions to video, wraps preloading, and mixes soundtrack without pausing it",async()=>{
   const mixer=mixerHarness();
   const firstCleanup=vi.fn();

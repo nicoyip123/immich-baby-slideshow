@@ -20,7 +20,7 @@ export function Slideshow({welcomeCopy}:{welcomeCopy:api.WelcomeCopy}){const[lis
  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;mixer.current?.dispose();mixer.current=null}},[]);
  useEffect(()=>{mixer.current?.setTarget(soundtrackLevel(soundtrackDuckType(item?.type,videoAudioUnlocked),muted))},[item?.type,muted,videoAudioUnlocked]);
  useEffect(()=>{if(!list||list.items.length<2)return;return preloadMediaItem(list.items[(index+1)%list.items.length])},[index,list]);
- useEffect(()=>{if(item?.type!=="VIDEO")return;if(paused)video.current?.pause();else void video.current?.play().catch(()=>{})},[item,paused]);
+ useEffect(()=>{if(item?.type!=="VIDEO")return;if(paused){video.current?.pause();return}let active=true;void video.current?.play().catch(()=>{if(active)move(1)});return()=>{active=false}},[item,paused]);
  const move=(delta:number)=>{if(list?.items.length)setIndex(i=>(i+delta+list.items.length)%list.items.length)};
  const pointerDown=(event:React.PointerEvent<HTMLElement>)=>{setVideoAudioUnlocked(true);if(event.pointerType!=="touch"||!event.isPrimary||(event.target as Element).closest(".controls")){swipe.current=null;return}swipe.current={pointerId:event.pointerId,x:event.clientX,y:event.clientY}};
  const pointerUp=(event:React.PointerEvent<HTMLElement>)=>{const start=swipe.current;swipe.current=null;if(!start||start.pointerId!==event.pointerId)return;const direction=swipeDirection(start,{x:event.clientX,y:event.clientY});if(direction){suppressClick.current=true;window.setTimeout(()=>{suppressClick.current=false},0);setControls(true);move(direction)}};
