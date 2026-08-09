@@ -6,13 +6,45 @@ import { createImpressionCodec } from "../../src/server/slideshow/impressions.js
 describe("baby age labels", () => {
   it.each([
     ["2025-01-01", "2025-01-01T12:00:00", "0 days old"],
-    ["2025-01-01", "2025-01-30T12:00:00", "29 days old"],
-    ["2025-01-31", "2025-02-28T12:00:00", "1 month old"],
-    ["2024-02-29", "2026-02-28T12:00:00", "2 years old"],
-    ["2025-01-01", "2024-12-31T12:00:00", null],
-    ["2025-01-01", "not-a-date", null]
-  ])("formats %s at %s", (birth, captured, expected) => {
-    expect(formatBabyAge(birth!, captured!, "Australia/Melbourne")).toBe(expected);
+    ["2025-01-01", "2025-01-02T12:00:00", "1 day old"],
+    ["2025-01-01", "2025-01-30T12:00:00", "29 days old"]
+  ])("formats day-only ages with singular and plural units", (birth, captured, expected) => {
+    expect(formatBabyAge(birth, captured, "Australia/Melbourne")).toBe(expected);
+  });
+
+  it.each([
+    ["2025-01-01", "2025-02-01T12:00:00", "1 month, 0 days old"],
+    ["2025-01-01", "2025-02-02T12:00:00", "1 month, 1 day old"],
+    ["2025-01-01", "2025-03-06T12:00:00", "2 months, 5 days old"],
+    ["2025-01-31", "2025-03-01T12:00:00", "1 month, 1 day old"]
+  ])("formats completed calendar months and remaining days", (birth, captured, expected) => {
+    expect(formatBabyAge(birth, captured, "Australia/Melbourne")).toBe(expected);
+  });
+
+  it.each([
+    ["2024-01-01", "2025-01-01T12:00:00", "1 year, 0 months, 0 days old"],
+    ["2024-01-01", "2025-02-02T12:00:00", "1 year, 1 month, 1 day old"],
+    ["2024-01-01", "2025-03-06T12:00:00", "1 year, 2 months, 5 days old"],
+    ["2023-01-01", "2025-03-01T12:00:00", "2 years, 2 months, 0 days old"],
+    ["2024-02-29", "2025-02-28T12:00:00", "1 year, 0 months, 0 days old"]
+  ])("formats completed calendar years, months, and days", (birth, captured, expected) => {
+    expect(formatBabyAge(birth, captured, "Australia/Melbourne")).toBe(expected);
+  });
+
+  it("converts timestamped captures to the configured local calendar date", () => {
+    expect(formatBabyAge("2025-01-01", "2025-02-28T13:30:00Z", "Australia/Melbourne")).toBe(
+      "2 months, 0 days old"
+    );
+  });
+
+  it.each([
+    ["2025-02-30", "2025-03-01T12:00:00"],
+    ["2025-01-01", "2025-02-30T12:00:00"],
+    ["2025-01-01", "not-a-date"],
+    ["not-a-date", "2025-01-01T12:00:00"],
+    ["2025-01-01", "2024-12-31T12:00:00"]
+  ])("rejects invalid or pre-birth dates", (birth, captured) => {
+    expect(formatBabyAge(birth, captured, "Australia/Melbourne")).toBeNull();
   });
 });
 
