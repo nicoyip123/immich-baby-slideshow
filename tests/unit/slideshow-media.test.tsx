@@ -185,6 +185,24 @@ describe("slideshow media integration",()=>{
   expect(original.classList.contains("media-original-loaded")).toBe(true);
  });
 
+ test("autoplays an auto-advanced video muted, then unmutes on a viewer tap",async()=>{
+  clientApi.createPlaylist.mockResolvedValue({...playlist,items:[second,first]});
+  const mixer=mixerHarness();
+  const user=userEvent.setup();
+  render(<Slideshow welcomeCopy={welcomeCopy}/>);
+  await user.click(screen.getByRole("button",{name:"Begin the journey"}));
+  await screen.findByRole("button",{name:"Next"});
+  const video=document.querySelector<HTMLVideoElement>("video")!;
+
+  expect(video.muted).toBe(true);
+  expect(HTMLMediaElement.prototype.play).toHaveBeenCalled();
+  await waitFor(()=>expect(mixer.setTarget).toHaveBeenLastCalledWith(1));
+
+  await user.click(video);
+  expect(video.muted).toBe(false);
+  await waitFor(()=>expect(mixer.setTarget).toHaveBeenLastCalledWith(.15));
+ });
+
  test("transitions to video, wraps preloading, and mixes soundtrack without pausing it",async()=>{
   const mixer=mixerHarness();
   const firstCleanup=vi.fn();
