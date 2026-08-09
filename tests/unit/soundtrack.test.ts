@@ -80,6 +80,20 @@ function deferredRejection(error: unknown): Promise<void> {
   });
 }
 
+function deferredPromise(): {
+  promise: Promise<void>;
+  resolve: () => void;
+} {
+  let resolvePromise: (() => void) | undefined;
+  const promise = new Promise<void>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return {
+    promise,
+    resolve: () => resolvePromise?.(),
+  };
+}
+
 function createGraph() {
   const gainParam = {
     value: 0.35,
@@ -175,6 +189,21 @@ describe("createSoundtrackMixer Web Audio path", () => {
 
     expect(graph.context.resume).toHaveBeenCalledOnce();
     expect(audio.play).toHaveBeenCalledOnce();
+  });
+
+  it("invokes play immediately without waiting for resume to settle", async () => {
+    const audio = new FakeAudio();
+    const graph = createGraph();
+    const resume = deferredPromise();
+    vi.mocked(graph.context.resume).mockReturnValueOnce(resume.promise);
+    const mixer = createSoundtrackMixer(audio, () => graph.context);
+
+    const started = mixer.start();
+
+    expect(graph.context.resume).toHaveBeenCalledOnce();
+    expect(audio.play).toHaveBeenCalledOnce();
+    resume.resolve();
+    await expect(started).resolves.toBeUndefined();
   });
 
   it("still plays when resume rejects", async () => {
@@ -359,17 +388,25 @@ describe("createSoundtrackMixer fallback", () => {
     }).not.toThrow();
   });
 
+  it("uses plain fallback when source creation fails before rerouting", async () => {
+    const audio = new FakeAudio();
+    const graph = createGraph();
+    vi.mocked(graph.context.createMediaElementSource).mockImplementationOnce(() => {
+      throw new Error("source creation failed");
+    });
+
+    const mixer = createSoundtrackMixer(audio, () => graph.context);
+    mixer.setTarget(0.6);
+    await mixer.start();
+
+    expect(graph.context.createMediaElementSource).toHaveBeenCalledOnce();
+    expect(graph.source.connect).not.toHaveBeenCalled();
+    expect(graph.context.close).toHaveBeenCalledOnce();
+    expect(audio.volume).toBe(0.6);
+    expect(audio.play).toHaveBeenCalledOnce();
+  });
+
   it.each([
-    {
-      step: "createMediaElementSource",
-      fail(graph: ReturnType<typeof createGraph>) {
-        vi.mocked(graph.context.createMediaElementSource).mockImplementationOnce(() => {
-          throw new Error("source creation failed");
-        });
-      },
-      sourceDisconnects: 0,
-      gainDisconnects: 0,
-    },
     {
       step: "createGain",
       fail(graph: ReturnType<typeof createGraph>) {
@@ -379,6 +416,7 @@ describe("createSoundtrackMixer fallback", () => {
       },
       sourceDisconnects: 1,
       gainDisconnects: 0,
+      sourceConnects: 1,
     },
     {
       step: "source.connect",
@@ -389,6 +427,7 @@ describe("createSoundtrackMixer fallback", () => {
       },
       sourceDisconnects: 1,
       gainDisconnects: 1,
+      sourceConnects: 2,
     },
     {
       step: "gain.connect",
@@ -399,10 +438,11 @@ describe("createSoundtrackMixer fallback", () => {
       },
       sourceDisconnects: 1,
       gainDisconnects: 1,
+      sourceConnects: 2,
     },
   ])(
-    "cleans resources after $step fails and falls back",
-    ({ fail, sourceDisconnects, gainDisconnects }) => {
+    "recovers direct playback after $step fails",
+    ({ fail, sourceDisconnects, gainDisconnects, sourceConnects }) => {
       const audio = new FakeAudio();
       const graph = createGraph();
       fail(graph);
@@ -412,10 +452,76 @@ describe("createSoundtrackMixer fallback", () => {
 
       expect(graph.source.disconnect).toHaveBeenCalledTimes(sourceDisconnects);
       expect(graph.gain.disconnect).toHaveBeenCalledTimes(gainDisconnects);
-      expect(graph.context.close).toHaveBeenCalledOnce();
+      expect(graph.source.connect).toHaveBeenCalledTimes(sourceConnects);
+      expect(graph.source.connect).toHaveBeenLastCalledWith(graph.destination);
+      expect(graph.context.createMediaElementSource).toHaveBeenCalledOnce();
+      expect(graph.context.close).not.toHaveBeenCalled();
       expect(audio.volume).toBe(0.6);
+
+      mixer.dispose();
+      mixer.dispose();
+      expect(graph.source.disconnect).toHaveBeenCalledTimes(sourceDisconnects + 1);
+      expect(graph.context.close).toHaveBeenCalledOnce();
     },
   );
+
+  it("starts recovered direct playback without waiting for resume", async () => {
+    const audio = new FakeAudio();
+    const graph = createGraph();
+    const resume = deferredPromise();
+    vi.mocked(graph.context.createGain).mockImplementationOnce(() => {
+      throw new Error("gain creation failed");
+    });
+    vi.mocked(graph.context.resume).mockReturnValueOnce(resume.promise);
+    const mixer = createSoundtrackMixer(audio, () => graph.context);
+
+    const started = mixer.start();
+
+    expect(graph.context.resume).toHaveBeenCalledOnce();
+    expect(audio.play).toHaveBeenCalledOnce();
+    resume.resolve();
+    await expect(started).resolves.toBeUndefined();
+  });
+
+  it("returns an inert safe mixer when direct source recovery also fails", async () => {
+    const audio = new FakeAudio();
+    const graph = createGraph();
+    vi.mocked(graph.context.createGain).mockImplementationOnce(() => {
+      throw new Error("gain creation failed");
+    });
+    graph.source.connect.mockImplementationOnce(() => {
+      throw new Error("direct recovery failed");
+    });
+
+    const mixer = createSoundtrackMixer(audio, () => graph.context);
+
+    expect(() => mixer.setTarget(0.4)).not.toThrow();
+    await expect(mixer.start()).resolves.toBeUndefined();
+    expect(() => {
+      mixer.dispose();
+      mixer.dispose();
+    }).not.toThrow();
+    expect(graph.context.createMediaElementSource).toHaveBeenCalledOnce();
+    expect(graph.source.disconnect).toHaveBeenCalledOnce();
+    expect(graph.context.close).toHaveBeenCalledOnce();
+    expect(audio.volume).toBe(1);
+    expect(audio.play).not.toHaveBeenCalled();
+  });
+
+  it("handles close rejection when disposing recovered direct playback", async () => {
+    const graph = createGraph();
+    vi.mocked(graph.context.createGain).mockImplementationOnce(() => {
+      throw new Error("gain creation failed");
+    });
+    vi.mocked(graph.context.close).mockReturnValueOnce(
+      deferredRejection(new Error("recovered close rejected")),
+    );
+    const mixer = createSoundtrackMixer(new FakeAudio(), () => graph.context);
+
+    mixer.dispose();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
 
   it("swallows fallback volume setter failures", () => {
     const audio = new FakeAudio();

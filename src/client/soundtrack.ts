@@ -128,15 +128,37 @@ function disconnect(node: { disconnect(): void } | undefined): void {
   }
 }
 
+function startIndependently(
+  audio: SoundtrackAudio,
+  context?: SoundtrackAudioContext,
+): Promise<void> {
+  const pending: Promise<void>[] = [];
+  if (context !== undefined) {
+    try {
+      pending.push(context.resume());
+    } catch {
+      // A synchronous resume failure must not prevent playback.
+    }
+  }
+  try {
+    pending.push(audio.play());
+  } catch {
+    // A synchronous playback failure is nonfatal.
+  }
+  return Promise.allSettled(pending).then(() => undefined);
+}
+
+function createInertMixer(): SoundtrackMixer {
+  return {
+    start: () => Promise.resolve(),
+    setTarget() {},
+    dispose() {},
+  };
+}
+
 function createFallbackMixer(audio: SoundtrackAudio): SoundtrackMixer {
   return {
-    async start() {
-      try {
-        await audio.play();
-      } catch {
-        // Autoplay rejection is nonfatal.
-      }
-    },
+    start: () => startIndependently(audio),
     setTarget(level) {
       try {
         audio.volume = safeLevel(level);
@@ -145,6 +167,32 @@ function createFallbackMixer(audio: SoundtrackAudio): SoundtrackMixer {
       }
     },
     dispose() {},
+  };
+}
+
+function createDirectMixer(
+  audio: SoundtrackAudio,
+  context: SoundtrackAudioContext,
+  source: SoundtrackSourceNode,
+): SoundtrackMixer {
+  let disposed = false;
+  return {
+    start: () => startIndependently(audio, context),
+    setTarget(level) {
+      try {
+        audio.volume = safeLevel(level);
+      } catch {
+        // Some media implementations expose a throwing volume setter.
+      }
+    },
+    dispose() {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      disconnect(source);
+      ignoreClose(context);
+    },
   };
 }
 
@@ -175,10 +223,20 @@ export function createSoundtrackMixer(
   } catch {
     disconnect(source);
     disconnect(gain);
-    if (context !== undefined) {
-      ignoreClose(context);
+    if (context === undefined) {
+      return createFallbackMixer(audio);
     }
-    return createFallbackMixer(audio);
+    if (source === undefined) {
+      ignoreClose(context);
+      return createFallbackMixer(audio);
+    }
+    try {
+      source.connect(context.destination);
+      return createDirectMixer(audio, context, source);
+    } catch {
+      ignoreClose(context);
+      return createInertMixer();
+    }
   }
 
   let disposed = false;
@@ -187,18 +245,7 @@ export function createSoundtrackMixer(
   const activeGain = gain;
 
   return {
-    async start() {
-      try {
-        await activeContext.resume();
-      } catch {
-        // Resuming and playback are intentionally independent attempts.
-      }
-      try {
-        await audio.play();
-      } catch {
-        // Autoplay rejection is nonfatal.
-      }
-    },
+    start: () => startIndependently(audio, activeContext),
     setTarget(level) {
       try {
         const now = activeContext.currentTime;
