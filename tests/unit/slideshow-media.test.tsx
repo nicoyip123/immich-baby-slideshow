@@ -82,6 +82,26 @@ describe("slideshow media integration",()=>{
   expect(analytics.track).toHaveBeenCalledWith("slideshow_started");
  });
 
+ test("reuses and disposes one mixer when Begin is triggered twice",async()=>{
+  const pending=deferred<typeof playlist>();
+  clientApi.createPlaylist.mockReturnValue(pending.promise);
+  const mixer=mixerHarness();
+  const {unmount}=render(<Slideshow welcomeCopy={welcomeCopy}/>);
+  const welcomeAudio=document.querySelector<HTMLAudioElement>('audio[src="/api/soundtrack"]')!;
+  const beginButton=screen.getByRole("button",{name:"Begin the journey"});
+
+  fireEvent.click(beginButton);
+  fireEvent.click(beginButton);
+
+  expect(soundtrack.createSoundtrackMixer).toHaveBeenCalledOnce();
+  expect(soundtrack.createSoundtrackMixer).toHaveBeenCalledWith(welcomeAudio);
+
+  await act(async()=>pending.resolve(playlist));
+  unmount();
+
+  expect(mixer.dispose).toHaveBeenCalledOnce();
+ });
+
  test("keeps exactly one soundtrack in the empty-playlist state",async()=>{
   clientApi.createPlaylist.mockResolvedValue({...playlist,items:[]});
   mixerHarness();
