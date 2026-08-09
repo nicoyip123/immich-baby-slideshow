@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createSoundtrackMixer,
@@ -23,6 +23,56 @@ class FakeAudio implements SoundtrackAudio {
     this.storedVolume = value;
   }
 }
+
+class FakeBrowserAudio extends FakeAudio {}
+
+function createNativeContextHarness() {
+  const instances: NativeContext[] = [];
+
+  class NativeContext {
+    readonly currentTime = 4;
+    readonly destination = {};
+    readonly source = {
+      connect: vi.fn<(destination: unknown) => void>(),
+      disconnect: vi.fn<() => void>(),
+    };
+    readonly gain = {
+      gain: {
+        value: 1,
+        cancelScheduledValues: vi.fn<(time: number) => void>(),
+        setValueAtTime: vi.fn<(value: number, time: number) => void>(),
+        linearRampToValueAtTime: vi.fn<(value: number, time: number) => void>(),
+      },
+      connect: vi.fn<(destination: unknown) => void>(),
+      disconnect: vi.fn<() => void>(),
+    };
+    readonly createMediaElementSource = vi.fn((_audio: unknown) => this.source);
+    readonly createGain = vi.fn(() => this.gain);
+    readonly resume = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    readonly close = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+
+    constructor() {
+      instances.push(this);
+    }
+  }
+
+  return { Context: NativeContext, instances };
+}
+
+function stubBrowserWindow(
+  standardContext: unknown,
+  webkitContext?: unknown,
+): void {
+  vi.stubGlobal("window", {
+    AudioContext: standardContext,
+    HTMLMediaElement: FakeBrowserAudio,
+    webkitAudioContext: webkitContext,
+  });
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function deferredRejection(error: unknown): Promise<void> {
   return new Promise((_resolve, reject) => {
@@ -138,6 +188,20 @@ describe("createSoundtrackMixer Web Audio path", () => {
     expect(audio.play).toHaveBeenCalledOnce();
   });
 
+  it("still plays when resume throws synchronously", async () => {
+    const audio = new FakeAudio();
+    const graph = createGraph();
+    vi.mocked(graph.context.resume).mockImplementationOnce(() => {
+      throw new Error("resume threw");
+    });
+    const mixer = createSoundtrackMixer(audio, () => graph.context);
+
+    await expect(mixer.start()).resolves.toBeUndefined();
+
+    expect(graph.context.resume).toHaveBeenCalledOnce();
+    expect(audio.play).toHaveBeenCalledOnce();
+  });
+
   it("resolves when play rejects", async () => {
     const audio = new FakeAudio();
     audio.play.mockRejectedValueOnce(new Error("play failed"));
@@ -145,6 +209,19 @@ describe("createSoundtrackMixer Web Audio path", () => {
     const mixer = createSoundtrackMixer(audio, () => graph.context);
 
     await expect(mixer.start()).resolves.toBeUndefined();
+  });
+
+  it("resolves when play throws synchronously", async () => {
+    const audio = new FakeAudio();
+    audio.play.mockImplementationOnce(() => {
+      throw new Error("play threw");
+    });
+    const graph = createGraph();
+    const mixer = createSoundtrackMixer(audio, () => graph.context);
+
+    await expect(mixer.start()).resolves.toBeUndefined();
+
+    expect(audio.play).toHaveBeenCalledOnce();
   });
 
   it("never throws when any automation method throws", () => {
@@ -219,6 +296,52 @@ describe("createSoundtrackMixer Web Audio path", () => {
   });
 });
 
+describe("createSoundtrackMixer default browser factory", () => {
+  it("uses window.AudioContext", () => {
+    const standard = createNativeContextHarness();
+    stubBrowserWindow(standard.Context);
+
+    const mixer = createSoundtrackMixer(new FakeBrowserAudio());
+
+    expect(standard.instances).toHaveLength(1);
+    expect(standard.instances[0]?.createMediaElementSource).toHaveBeenCalledOnce();
+    mixer.dispose();
+  });
+
+  it("falls back to window.webkitAudioContext", () => {
+    const webkit = createNativeContextHarness();
+    stubBrowserWindow(undefined, webkit.Context);
+
+    const mixer = createSoundtrackMixer(new FakeBrowserAudio());
+
+    expect(webkit.instances).toHaveLength(1);
+    expect(webkit.instances[0]?.createMediaElementSource).toHaveBeenCalledOnce();
+    mixer.dispose();
+  });
+
+  it("prefers window.AudioContext when both constructors exist", () => {
+    const standard = createNativeContextHarness();
+    const webkit = createNativeContextHarness();
+    stubBrowserWindow(standard.Context, webkit.Context);
+
+    const mixer = createSoundtrackMixer(new FakeBrowserAudio());
+
+    expect(standard.instances).toHaveLength(1);
+    expect(webkit.instances).toHaveLength(0);
+    mixer.dispose();
+  });
+
+  it("uses the safe volume fallback when Web Audio is unavailable", () => {
+    const audio = new FakeBrowserAudio();
+    stubBrowserWindow(undefined);
+
+    const mixer = createSoundtrackMixer(audio);
+    mixer.setTarget(0.3);
+
+    expect(audio.volume).toBe(0.3);
+  });
+});
+
 describe("createSoundtrackMixer fallback", () => {
   it("uses volume and play when context construction fails", async () => {
     const audio = new FakeAudio();
@@ -236,21 +359,63 @@ describe("createSoundtrackMixer fallback", () => {
     }).not.toThrow();
   });
 
-  it("cleans partial graph resources before falling back", () => {
-    const audio = new FakeAudio();
-    const graph = createGraph();
-    graph.gain.connect.mockImplementationOnce(() => {
-      throw new Error("connect failed");
-    });
+  it.each([
+    {
+      step: "createMediaElementSource",
+      fail(graph: ReturnType<typeof createGraph>) {
+        vi.mocked(graph.context.createMediaElementSource).mockImplementationOnce(() => {
+          throw new Error("source creation failed");
+        });
+      },
+      sourceDisconnects: 0,
+      gainDisconnects: 0,
+    },
+    {
+      step: "createGain",
+      fail(graph: ReturnType<typeof createGraph>) {
+        vi.mocked(graph.context.createGain).mockImplementationOnce(() => {
+          throw new Error("gain creation failed");
+        });
+      },
+      sourceDisconnects: 1,
+      gainDisconnects: 0,
+    },
+    {
+      step: "source.connect",
+      fail(graph: ReturnType<typeof createGraph>) {
+        graph.source.connect.mockImplementationOnce(() => {
+          throw new Error("source connection failed");
+        });
+      },
+      sourceDisconnects: 1,
+      gainDisconnects: 1,
+    },
+    {
+      step: "gain.connect",
+      fail(graph: ReturnType<typeof createGraph>) {
+        graph.gain.connect.mockImplementationOnce(() => {
+          throw new Error("gain connection failed");
+        });
+      },
+      sourceDisconnects: 1,
+      gainDisconnects: 1,
+    },
+  ])(
+    "cleans resources after $step fails and falls back",
+    ({ fail, sourceDisconnects, gainDisconnects }) => {
+      const audio = new FakeAudio();
+      const graph = createGraph();
+      fail(graph);
 
-    const mixer = createSoundtrackMixer(audio, () => graph.context);
-    mixer.setTarget(0.6);
+      const mixer = createSoundtrackMixer(audio, () => graph.context);
+      mixer.setTarget(0.6);
 
-    expect(graph.source.disconnect).toHaveBeenCalledOnce();
-    expect(graph.gain.disconnect).toHaveBeenCalledOnce();
-    expect(graph.context.close).toHaveBeenCalledOnce();
-    expect(audio.volume).toBe(0.6);
-  });
+      expect(graph.source.disconnect).toHaveBeenCalledTimes(sourceDisconnects);
+      expect(graph.gain.disconnect).toHaveBeenCalledTimes(gainDisconnects);
+      expect(graph.context.close).toHaveBeenCalledOnce();
+      expect(audio.volume).toBe(0.6);
+    },
+  );
 
   it("swallows fallback volume setter failures", () => {
     const audio = new FakeAudio();
@@ -270,5 +435,19 @@ describe("createSoundtrackMixer fallback", () => {
     });
 
     await expect(mixer.start()).resolves.toBeUndefined();
+  });
+
+  it("swallows a synchronous fallback play throw", async () => {
+    const audio = new FakeAudio();
+    audio.play.mockImplementationOnce(() => {
+      throw new Error("play threw");
+    });
+    const mixer = createSoundtrackMixer(audio, () => {
+      throw new Error("context unavailable");
+    });
+
+    await expect(mixer.start()).resolves.toBeUndefined();
+
+    expect(audio.play).toHaveBeenCalledOnce();
   });
 });
