@@ -32,7 +32,7 @@ function addMonthsClamped([year, month, day]: CalendarDate, months: number): Cal
 }
 
 function dateParts(value: string, timeZone: string): CalendarDate | null {
-  const datePrefix = /^(\d{4})-(\d{2})-(\d{2})T/.exec(value);
+  const datePrefix = /^(\d{4})-(\d{2})-(\d{2})(?:$|[T ])/.exec(value);
   const inputDate: CalendarDate | null = datePrefix
     ? [Number(datePrefix[1]), Number(datePrefix[2]), Number(datePrefix[3])]
     : null;

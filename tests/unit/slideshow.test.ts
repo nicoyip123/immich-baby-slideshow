@@ -16,7 +16,9 @@ describe("baby age labels", () => {
     ["2025-01-01", "2025-02-01T12:00:00", "1 month, 0 days old"],
     ["2025-01-01", "2025-02-02T12:00:00", "1 month, 1 day old"],
     ["2025-01-01", "2025-03-06T12:00:00", "2 months, 5 days old"],
-    ["2025-01-31", "2025-03-01T12:00:00", "1 month, 1 day old"]
+    ["2025-01-31", "2025-03-01T12:00:00", "1 month, 1 day old"],
+    ["2025-01-31", "2025-03-30T12:00:00", "1 month, 30 days old"],
+    ["2025-01-31", "2025-03-31T12:00:00", "2 months, 0 days old"]
   ])("formats completed calendar months and remaining days", (birth, captured, expected) => {
     expect(formatBabyAge(birth, captured, "Australia/Melbourne")).toBe(expected);
   });
@@ -40,6 +42,8 @@ describe("baby age labels", () => {
   it.each([
     ["2025-02-30", "2025-03-01T12:00:00"],
     ["2025-01-01", "2025-02-30T12:00:00"],
+    ["2025-01-01", "2025-02-30"],
+    ["2025-01-01", "2025-02-30 12:00:00Z"],
     ["2025-01-01", "not-a-date"],
     ["not-a-date", "2025-01-01T12:00:00"],
     ["2025-01-01", "2024-12-31T12:00:00"]
