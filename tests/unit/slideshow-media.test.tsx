@@ -28,8 +28,9 @@ const playlist={playlistId:"playlist",photoDurationMs:600_000,items:[first,secon
 
 function deferred<T>(){
  let resolve!: (value:T)=>void;
- const promise=new Promise<T>(done=>{resolve=done});
- return {promise,resolve};
+ let reject!: (reason?:unknown)=>void;
+ const promise=new Promise<T>((done,fail)=>{resolve=done;reject=fail});
+ return {promise,resolve,reject};
 }
 
 function mixerHarness(){
@@ -73,7 +74,7 @@ describe("slideshow media integration",()=>{
   expect(mixer.start).toHaveBeenCalledOnce();
   expect(clientApi.createPlaylist).toHaveBeenCalledOnce();
   expect(mixer.start.mock.invocationCallOrder[0]).toBeLessThan(clientApi.createPlaylist.mock.invocationCallOrder[0]);
-  expect(screen.getByRole("button",{name:"Begin the journey"})).toBeTruthy();
+  expect(screen.getByRole<HTMLButtonElement>("button",{name:"Loading memories…"}).disabled).toBe(true);
 
   await act(async()=>pending.resolve(playlist));
 
@@ -82,7 +83,7 @@ describe("slideshow media integration",()=>{
   expect(analytics.track).toHaveBeenCalledWith("slideshow_started");
  });
 
- test("reuses and disposes one mixer when Begin is triggered twice",async()=>{
+ test("serializes repeated Begin attempts into one startup operation",async()=>{
   const pending=deferred<typeof playlist>();
   clientApi.createPlaylist.mockReturnValue(pending.promise);
   const mixer=mixerHarness();
@@ -95,11 +96,62 @@ describe("slideshow media integration",()=>{
 
   expect(soundtrack.createSoundtrackMixer).toHaveBeenCalledOnce();
   expect(soundtrack.createSoundtrackMixer).toHaveBeenCalledWith(welcomeAudio);
+  expect(mixer.start).toHaveBeenCalledOnce();
+  expect(clientApi.createPlaylist).toHaveBeenCalledOnce();
+  expect(screen.getByRole("button",{name:"Loading memories…"}).hasAttribute("disabled")).toBe(true);
 
   await act(async()=>pending.resolve(playlist));
+  expect(analytics.track).toHaveBeenCalledTimes(1);
   unmount();
 
   expect(mixer.dispose).toHaveBeenCalledOnce();
+ });
+
+ test("handles startup failure and retries with the existing mixer",async()=>{
+  clientApi.createPlaylist
+   .mockRejectedValueOnce(new Error("secret token and media detail"))
+   .mockResolvedValueOnce(playlist);
+  const mixer=mixerHarness();
+  const user=userEvent.setup();
+  render(<Slideshow welcomeCopy={welcomeCopy}/>);
+
+  await user.click(screen.getByRole("button",{name:"Begin the journey"}));
+
+  const alert=await screen.findByRole("alert");
+  expect(alert.textContent).toBe("We couldn’t start the slideshow. Please try again.");
+  expect(alert.textContent).not.toContain("secret token");
+  expect(mixer.setTarget).toHaveBeenLastCalledWith(0);
+  expect(screen.getByRole<HTMLButtonElement>("button",{name:"Begin the journey"}).disabled).toBe(false);
+
+  await user.click(screen.getByRole("button",{name:"Begin the journey"}));
+  await screen.findByRole("button",{name:"Next"});
+
+  expect(soundtrack.createSoundtrackMixer).toHaveBeenCalledOnce();
+  expect(mixer.start).toHaveBeenCalledTimes(2);
+  expect(clientApi.createPlaylist).toHaveBeenCalledTimes(2);
+  expect(analytics.track).toHaveBeenCalledTimes(1);
+ });
+
+ test.each(["resolve","reject"] as const)("ignores a late playlist %s after unmount",async(settlement)=>{
+  const pending=deferred<typeof playlist>();
+  clientApi.createPlaylist.mockReturnValue(pending.promise);
+  const mixer=mixerHarness();
+  const consoleError=vi.spyOn(console,"error").mockImplementation(()=>{});
+  const {unmount}=render(<Slideshow welcomeCopy={welcomeCopy}/>);
+  fireEvent.click(screen.getByRole("button",{name:"Begin the journey"}));
+  const targetCalls=mixer.setTarget.mock.calls.length;
+
+  unmount();
+  expect(mixer.dispose).toHaveBeenCalledOnce();
+
+  await act(async()=>{
+   if(settlement==="resolve")pending.resolve(playlist);
+   else pending.reject(new Error("late failure"));
+  });
+
+  expect(mixer.setTarget).toHaveBeenCalledTimes(targetCalls);
+  expect(analytics.track).not.toHaveBeenCalled();
+  expect(consoleError).not.toHaveBeenCalled();
  });
 
  test("keeps exactly one soundtrack in the empty-playlist state",async()=>{
