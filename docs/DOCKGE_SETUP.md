@@ -33,3 +33,18 @@ Create/import this directory as a stack, inspect `compose.yaml`, and deploy. The
 ## 4. Operate and back up
 
 Rebuild/redeploy from Dockge for updates. Back up the `slideshow_data` volume (anonymous display counts) and the local `music/` folder. Immich remains the source of truth for media. Logs rotate at three 10 MB files and must never contain passwords, API keys, filenames, or private media URLs.
+
+## 5. Create an easy private family link
+
+After the slideshow container is running, generate a private link from the Linux device:
+
+```bash
+docker exec immich-baby-slideshow-baby-slideshow-1 \
+  node dist/server/tools/create-family-link.js
+```
+
+The command prints exactly two lines. Copy only the `FAMILY_LINK_TOKEN_HASH='…'` line into the stack's `.env` file, replacing the existing `FAMILY_LINK_TOKEN_HASH=` value. Keep the `FAMILY_LINK_URL='https://…/#family=…'` line somewhere private and share that URL with family members. Do not put `FAMILY_LINK_URL` in `.env`.
+
+In Dockge, update the stack and use **Recreate** (or stop and deploy it again) so the container loads the new hash. No Cloudflare Tunnel change is needed. Opening the private URL signs that browser in for 30 days and immediately removes the secret fragment from its address bar. If the link fails, the normal family-password screen appears without revealing why.
+
+Treat the URL like a password: anyone who has it can view the family slideshow. To revoke it, run the generator again, replace `FAMILY_LINK_TOKEN_HASH` with the new first line, and recreate the container. Rotation immediately invalidates both the old URL and every session created by it; ordinary family-password and admin sessions remain valid. Share only the newly generated URL.
