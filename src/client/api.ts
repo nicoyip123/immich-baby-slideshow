@@ -10,6 +10,7 @@ async function json<T>(url:string, init?:RequestInit):Promise<T>{
 }
 export const status=(role:"family"|"admin")=>json<{authenticated:boolean}>(`/api/auth/${role}/status`);
 export const login=(role:"family"|"admin",password:string)=>json(`/api/auth/${role}`,{method:"POST",body:JSON.stringify({password})});
+export const loginWithFamilyLink=(token:string)=>json("/api/auth/family-link",{method:"POST",body:JSON.stringify({token})});
 export const logout=(role:"family"|"admin")=>json(`/api/auth/${role}/logout`,{method:"POST",body:""});
 export const createPlaylist=()=>json<Playlist>("/api/playlist",{method:"POST",body:""});
 export const getWelcomeCopy=()=>json<WelcomeCopy>("/api/welcome");

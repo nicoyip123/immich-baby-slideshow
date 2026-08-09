@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createPlaylist, getWelcomeCopy, login } from "../../src/client/api.js";
+import { createPlaylist, getWelcomeCopy, login, loginWithFamilyLink } from "../../src/client/api.js";
 
 describe("client API requests", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -30,6 +30,27 @@ describe("client API requests", () => {
 
     await login("family", "secret");
 
+    expect(new Headers(request?.headers).get("content-type")).toBe("application/json");
+  });
+
+  it("exchanges a private family-link token using same-origin credentials", async () => {
+    let url: RequestInfo | URL | undefined;
+    let request: RequestInit | undefined;
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      url = input;
+      request = init;
+      return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+    });
+
+    const token = "ab".repeat(32);
+    await loginWithFamilyLink(token);
+
+    expect(url).toBe("/api/auth/family-link");
+    expect(request).toMatchObject({
+      method: "POST",
+      credentials: "same-origin",
+      body: JSON.stringify({ token })
+    });
     expect(new Headers(request?.headers).get("content-type")).toBe("application/json");
   });
 
