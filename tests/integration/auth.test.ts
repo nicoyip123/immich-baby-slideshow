@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createConnection } from "node:net";
 import type { AddressInfo } from "node:net";
+import { PassThrough } from "node:stream";
 import { buildApp, type BuildAppOptions } from "../../src/server/app.js";
 import type { AppConfig } from "../../src/server/config.js";
 import { hashFamilyLinkToken } from "../../src/server/security/family-link.js";
@@ -368,14 +369,106 @@ describe("authentication boundary", () => {
     expect(passwordLogin.statusCode).toBe(200);
   });
 
-  it("leaves the disabled family-link route as a generic not-found endpoint", async () => {
-    const app = await makeApp();
-    const response = await exchangeFamilyLink(app, familyLinkToken);
+  it("admits only one same-IP family-link exchange while its body is still parsing", async () => {
+    const app = await makeApp({ familyLinkTokenHash });
+    const remoteAddress = "192.0.2.121";
+    const wrongToken = "ef".repeat(32);
+    const payload = new PassThrough();
+    const first = app.inject({
+      method: "POST",
+      url: "/api/auth/family-link",
+      headers: { origin: publicOrigin, "content-type": "application/json" },
+      payload,
+      remoteAddress
+    });
+    payload.write('{"token":"');
+    await new Promise((resolve) => setImmediate(resolve));
 
-    expect(response.statusCode).toBe(404);
-    expect(response.json()).toMatchObject({ statusCode: 404, error: "Not Found" });
-    expect(response.body).not.toContain(familyLinkToken);
-    expect(response.body).not.toContain(familyLinkTokenHash);
+    const concurrent = await Promise.all(
+      Array.from({ length: 24 }, () => exchangeFamilyLink(app, wrongToken, remoteAddress))
+    );
+    expect(concurrent.map((response) => response.statusCode)).toEqual(
+      Array.from({ length: 24 }, () => 429)
+    );
+
+    payload.end(`${wrongToken}"}`);
+    expect((await first).statusCode).toBe(401);
+    expect((await exchangeFamilyLink(app, familyLinkToken, remoteAddress)).statusCode).toBe(200);
+  });
+
+  it("releases family-link admission after success and parser failures", async () => {
+    const app = await makeApp({ familyLinkTokenHash });
+    expect((await exchangeFamilyLink(app, familyLinkToken, "192.0.2.122")).statusCode).toBe(200);
+    expect((await exchangeFamilyLink(app, familyLinkToken, "192.0.2.122")).statusCode).toBe(200);
+
+    const malformed = await app.inject({
+      method: "POST",
+      url: "/api/auth/family-link",
+      headers: { origin: publicOrigin, "content-type": "application/json" },
+      payload: '{"token":',
+      remoteAddress: "192.0.2.123"
+    });
+    expect(malformed.statusCode).toBe(400);
+    expect((await exchangeFamilyLink(app, familyLinkToken, "192.0.2.123")).statusCode).toBe(200);
+  });
+
+  it("releases family-link admission when a client aborts during body upload", async () => {
+    const app = await makeApp({ familyLinkTokenHash });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const address = app.server.address() as AddressInfo;
+
+    await new Promise<void>((resolve, reject) => {
+      const socket = createConnection({ host: "127.0.0.1", port: address.port });
+      socket.once("error", reject);
+      socket.once("connect", () => {
+        socket.write([
+          "POST /api/auth/family-link HTTP/1.1",
+          `Host: 127.0.0.1:${address.port}`,
+          `Origin: ${publicOrigin}`,
+          "Content-Type: application/json",
+          "Content-Length: 100",
+          "Connection: close",
+          "",
+          '{"token":"partial'
+        ].join("\r\n"));
+        setTimeout(() => socket.destroy(), 10);
+      });
+      socket.once("close", () => resolve());
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+    expect((await exchangeFamilyLink(app, familyLinkToken, "127.0.0.1")).statusCode).toBe(200);
+  });
+
+  it("makes disabled family-link failures indistinguishable and isolated from password login", async () => {
+    const configured = await makeApp({ familyLinkTokenHash });
+    const disabled = await makeApp();
+    const remoteAddress = "192.0.2.124";
+    const configuredFailure = await exchangeFamilyLink(
+      configured,
+      rotatedFamilyLinkToken,
+      "192.0.2.125"
+    );
+    const disabledFailure = await exchangeFamilyLink(disabled, familyLinkToken, remoteAddress);
+
+    expect({
+      statusCode: disabledFailure.statusCode,
+      body: disabledFailure.json(),
+      cacheControl: disabledFailure.headers["cache-control"]
+    }).toEqual({
+      statusCode: configuredFailure.statusCode,
+      body: configuredFailure.json(),
+      cacheControl: configuredFailure.headers["cache-control"]
+    });
+    expect(disabledFailure.headers["set-cookie"]).toBeUndefined();
+
+    for (let attempt = 1; attempt < 5; attempt += 1) {
+      expect((await exchangeFamilyLink(disabled, familyLinkToken, remoteAddress)).statusCode).toBe(401);
+    }
+    const limited = await exchangeFamilyLink(disabled, familyLinkToken, remoteAddress);
+    expect(limited.statusCode).toBe(429);
+    expect(limited.json()).toEqual({ error: "Please try again later" });
+    expect((await login(disabled, "family", "family secret", remoteAddress)).statusCode).toBe(200);
   });
 
   it("revokes link sessions on hash rotation without invalidating password family sessions", async () => {

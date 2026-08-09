@@ -11,7 +11,10 @@ import { publicConfigRoutes } from "./routes/public-config.js";
 import { statsRoutes } from "./routes/stats.js";
 import { welcomeRoutes } from "./routes/welcome.js";
 import { createFailedLoginLimiter, createImmediatePermitPool } from "./security/login-attempts.js";
-import { deriveFamilyLinkSessionSecret } from "./security/family-link.js";
+import {
+  deriveFamilyLinkSessionSecret,
+  FAMILY_LINK_SESSION_DURATION_SECONDS
+} from "./security/family-link.js";
 import { verifyPassword } from "./security/password.js";
 import { createSessionCodec } from "./security/session.js";
 import { ImmichClient, type ImmichPort } from "./immich/client.js";
@@ -74,16 +77,16 @@ export async function buildApp(options: BuildAppOptions) {
               options.config.sessionSecret,
               options.config.familyLinkTokenHash
             ),
-            durationSeconds: 2_592_000,
+            durationSeconds: FAMILY_LINK_SESSION_DURATION_SECONDS,
             now,
             generateNonce: options.dependencies?.generateNonce
-          }),
-          failedLogins: createFailedLoginLimiter({ now })
+          })
         };
     const guards = await registerAuthRoutes(app, {
       config: options.config,
       sessions,
       familyLink,
+      familyLinkFailedLogins: createFailedLoginLimiter({ now }),
       failedLogins: createFailedLoginLimiter({ now }),
       passwordVerificationPermits:
         options.dependencies?.maxConcurrentPasswordVerifications === undefined

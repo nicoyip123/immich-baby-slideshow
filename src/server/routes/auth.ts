@@ -8,7 +8,11 @@ import type {
   preHandlerHookHandler
 } from "fastify";
 import type { AppConfig } from "../config.js";
-import { isFamilyLinkToken, verifyFamilyLinkToken } from "../security/family-link.js";
+import {
+  FAMILY_LINK_SESSION_DURATION_SECONDS,
+  isFamilyLinkToken,
+  verifyFamilyLinkToken
+} from "../security/family-link.js";
 import type { FailedLoginLimiter, ImmediatePermitPool } from "../security/login-attempts.js";
 import { requireConfiguredOrigin } from "../security/origin.js";
 import type { SessionCodec, SessionRole } from "../security/session.js";
@@ -39,8 +43,8 @@ export interface AuthRouteOptions {
   familyLink?: {
     tokenHash: string;
     sessions: SessionCodec;
-    failedLogins: FailedLoginLimiter;
   };
+  familyLinkFailedLogins: FailedLoginLimiter;
   failedLogins: FailedLoginLimiter;
   passwordVerificationPermits: ImmediatePermitPool;
   verifyPassword: (password: string, storedHash: string) => Promise<boolean>;
@@ -129,6 +133,27 @@ export async function registerAuthRoutes(
   const releaseInFlight: onResponseHookHandler = async (request) => {
     inFlightReleases.get(request)?.();
   };
+  const reserveInFlight = (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    key: string
+  ): FastifyReply | undefined => {
+    if (inFlightKeys.has(key)) return reply.code(429).send(RATE_LIMIT_BODY);
+    inFlightKeys.add(key);
+    let released = false;
+    const release = () => {
+      if (!released) {
+        released = true;
+        inFlightKeys.delete(key);
+        inFlightReleases.delete(request);
+        request.raw.off("aborted", release);
+        request.raw.off("error", release);
+      }
+    };
+    inFlightReleases.set(request, release);
+    request.raw.once("aborted", release);
+    request.raw.once("error", release);
+  };
   const cookieOptions = Object.freeze({
     httpOnly: true,
     secure: true,
@@ -136,53 +161,53 @@ export async function registerAuthRoutes(
     path: "/",
     maxAge: options.config.sessionDurationSeconds
   });
-  if (options.familyLink) {
+  const rejectMalformedFamilyLink = (request: FastifyRequest, reply: FastifyReply) => {
+    if (options.familyLinkFailedLogins.isBlocked("family", request.ip)) {
+      return reply.code(429).send(RATE_LIMIT_BODY);
+    }
+    options.familyLinkFailedLogins.recordFailure("family", request.ip);
+    return reply.code(400).send(AUTHENTICATION_FAILURE_BODY);
+  };
+  const admitFamilyLink: onRequestHookHandler = async (request, reply) => {
+    if (options.familyLinkFailedLogins.isBlocked("family", request.ip)) {
+      return reply.code(429).send(RATE_LIMIT_BODY);
+    }
+    return reserveInFlight(request, reply, `family-link\0${request.ip}`);
+  };
+  const familyLinkCookieOptions = Object.freeze({
+    httpOnly: true,
+    secure: true,
+    sameSite: "strict" as const,
+    path: "/",
+    maxAge: FAMILY_LINK_SESSION_DURATION_SECONDS
+  });
+
+  app.post("/api/auth/family-link", {
+    bodyLimit: 8 * 1024,
+    onRequest: [originGuard, admitFamilyLink],
+    onSend: noStore,
+    onResponse: releaseInFlight,
+    errorHandler(error, request, reply) {
+      if (MALFORMED_CREDENTIAL_ERROR_CODES.has(error.code)) {
+        return rejectMalformedFamilyLink(request, reply);
+      }
+      throw error;
+    }
+  }, async (request, reply) => {
+    const token = readFamilyLinkToken(request.body);
+    if (token === undefined) return rejectMalformedFamilyLink(request, reply);
+
     const familyLink = options.familyLink;
-    const rejectMalformedFamilyLink = (request: FastifyRequest, reply: FastifyReply) => {
-      if (familyLink.failedLogins.isBlocked("family", request.ip)) {
-        return reply.code(429).send(RATE_LIMIT_BODY);
-      }
-      familyLink.failedLogins.recordFailure("family", request.ip);
-      return reply.code(400).send(AUTHENTICATION_FAILURE_BODY);
-    };
-    const admitFamilyLink: onRequestHookHandler = async (request, reply) => {
-      if (familyLink.failedLogins.isBlocked("family", request.ip)) {
-        return reply.code(429).send(RATE_LIMIT_BODY);
-      }
-    };
-    const familyLinkCookieOptions = Object.freeze({
-      httpOnly: true,
-      secure: true,
-      sameSite: "strict" as const,
-      path: "/",
-      maxAge: 2_592_000
-    });
+    if (!familyLink || !verifyFamilyLinkToken(token, familyLink.tokenHash)) {
+      options.familyLinkFailedLogins.recordFailure("family", request.ip);
+      return reply.code(401).send(AUTHENTICATION_FAILURE_BODY);
+    }
 
-    app.post("/api/auth/family-link", {
-      bodyLimit: 8 * 1024,
-      onRequest: [originGuard, admitFamilyLink],
-      onSend: noStore,
-      errorHandler(error, request, reply) {
-        if (MALFORMED_CREDENTIAL_ERROR_CODES.has(error.code)) {
-          return rejectMalformedFamilyLink(request, reply);
-        }
-        throw error;
-      }
-    }, async (request, reply) => {
-      const token = readFamilyLinkToken(request.body);
-      if (token === undefined) return rejectMalformedFamilyLink(request, reply);
-
-      if (!verifyFamilyLinkToken(token, familyLink.tokenHash)) {
-        familyLink.failedLogins.recordFailure("family", request.ip);
-        return reply.code(401).send(AUTHENTICATION_FAILURE_BODY);
-      }
-
-      familyLink.failedLogins.recordSuccess("family", request.ip);
-      return reply
-        .setCookie(FAMILY_SESSION_COOKIE, familyLink.sessions.issue("family"), familyLinkCookieOptions)
-        .send(SUCCESS_BODY);
-    });
-  }
+    options.familyLinkFailedLogins.recordSuccess("family", request.ip);
+    return reply
+      .setCookie(FAMILY_SESSION_COOKIE, familyLink.sessions.issue("family"), familyLinkCookieOptions)
+      .send(SUCCESS_BODY);
+  });
 
   for (const role of ["family", "admin"] as const) {
     const rejectMalformedCredential = (request: FastifyRequest, reply: FastifyReply) => {
@@ -196,22 +221,7 @@ export async function registerAuthRoutes(
       if (options.failedLogins.isBlocked(role, request.ip)) {
         return reply.code(429).send(RATE_LIMIT_BODY);
       }
-      const key = `${role}\0${request.ip}`;
-      if (inFlightKeys.has(key)) return reply.code(429).send(RATE_LIMIT_BODY);
-      inFlightKeys.add(key);
-      let released = false;
-      const release = () => {
-        if (!released) {
-          released = true;
-          inFlightKeys.delete(key);
-          inFlightReleases.delete(request);
-          request.raw.off("aborted", release);
-          request.raw.off("error", release);
-        }
-      };
-      inFlightReleases.set(request, release);
-      request.raw.once("aborted", release);
-      request.raw.once("error", release);
+      return reserveInFlight(request, reply, `${role}\0${request.ip}`);
     };
 
     app.post(`/api/auth/${role}`, {

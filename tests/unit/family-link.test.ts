@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import * as familyLinkSecurity from "../../src/server/security/family-link.js";
 import {
   createFamilyLink,
   deriveFamilyLinkSessionSecret,
@@ -19,6 +20,11 @@ const canonicalToken = "0123456789abcdef0123456789abcdef0123456789abcdef01234567
 const canonicalHash = "a8ae6e6ee929abea3afcfc5258c8ccd6f85273e0d4626d26c7279f3250f77c8e";
 
 describe("family link token primitives", () => {
+  it("exports the single 30-day family-link session duration", () => {
+    const exports = familyLinkSecurity as unknown as Record<string, unknown>;
+    expect(exports.FAMILY_LINK_SESSION_DURATION_SECONDS).toBe(2_592_000);
+  });
+
   it("recognizes only canonical 32-byte lowercase hexadecimal tokens and hashes", () => {
     for (const value of [canonicalToken, canonicalHash]) {
       expect(isFamilyLinkToken(value)).toBe(true);

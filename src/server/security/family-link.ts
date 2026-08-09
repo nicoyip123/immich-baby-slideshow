@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 export const FAMILY_LINK_HEX_PATTERN = /^[a-f0-9]{64}$/;
+export const FAMILY_LINK_SESSION_DURATION_SECONDS = 2_592_000;
 const FAMILY_LINK_SESSION_DOMAIN = "immich-baby-slideshow/family-link-session/v1";
 
 export interface FamilyLink {
