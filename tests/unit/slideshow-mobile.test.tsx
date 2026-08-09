@@ -36,7 +36,7 @@ async function begin(){
  const user=userEvent.setup();
  render(<Slideshow welcomeCopy={welcomeCopy}/>);
  await user.click(screen.getByRole("button",{name:"Begin the journey"}));
- await waitFor(()=>expect(document.querySelector<HTMLImageElement>(".media")?.getAttribute("src")).toBe("/api/assets/first/media"));
+ await waitFor(()=>expect(document.querySelector<HTMLImageElement>(".media-original")?.getAttribute("src")).toBe("/api/assets/first/media"));
  return document.querySelector<HTMLElement>("main.stage")!;
 }
 
@@ -45,7 +45,7 @@ test("a qualifying touch swipe moves to the next memory once",async()=>{
  fireEvent.pointerDown(stage,{pointerId:1,pointerType:"touch",isPrimary:true,clientX:140,clientY:40});
  fireEvent.pointerUp(stage,{pointerId:1,pointerType:"touch",isPrimary:true,clientX:70,clientY:45});
  fireEvent.click(stage);
- expect(document.querySelector<HTMLImageElement>(".media")?.getAttribute("src")).toBe("/api/assets/second/media");
+ expect(document.querySelector<HTMLImageElement>(".media-original")?.getAttribute("src")).toBe("/api/assets/second/media");
 });
 
 test("a touch starting on a control only performs the button action",async()=>{
@@ -54,7 +54,7 @@ test("a touch starting on a control only performs the button action",async()=>{
  fireEvent.pointerDown(next,{pointerId:1,pointerType:"touch",isPrimary:true,clientX:140,clientY:40});
  fireEvent.pointerUp(next,{pointerId:1,pointerType:"touch",isPrimary:true,clientX:70,clientY:45});
  fireEvent.click(next);
- expect(document.querySelector<HTMLImageElement>(".media")?.getAttribute("src")).toBe("/api/assets/second/media");
+ expect(document.querySelector<HTMLImageElement>(".media-original")?.getAttribute("src")).toBe("/api/assets/second/media");
 });
 
 test("a cancelled touch does not navigate",async()=>{
@@ -62,7 +62,7 @@ test("a cancelled touch does not navigate",async()=>{
  fireEvent.pointerDown(stage,{pointerId:1,pointerType:"touch",isPrimary:true,clientX:140,clientY:40});
  fireEvent.pointerCancel(stage,{pointerId:1,pointerType:"touch",isPrimary:true});
  fireEvent.pointerUp(stage,{pointerId:1,pointerType:"touch",isPrimary:true,clientX:70,clientY:45});
- expect(document.querySelector<HTMLImageElement>(".media")?.getAttribute("src")).toBe("/api/assets/first/media");
+ expect(document.querySelector<HTMLImageElement>(".media-original")?.getAttribute("src")).toBe("/api/assets/first/media");
 });
 
 test("a second touch cancels navigation",async()=>{
@@ -70,12 +70,12 @@ test("a second touch cancels navigation",async()=>{
  fireEvent.pointerDown(stage,{pointerId:1,pointerType:"touch",isPrimary:true,clientX:140,clientY:40});
  fireEvent.pointerDown(stage,{pointerId:2,pointerType:"touch",isPrimary:false,clientX:120,clientY:40});
  fireEvent.pointerUp(stage,{pointerId:1,pointerType:"touch",isPrimary:true,clientX:70,clientY:45});
- expect(document.querySelector<HTMLImageElement>(".media")?.getAttribute("src")).toBe("/api/assets/first/media");
+ expect(document.querySelector<HTMLImageElement>(".media-original")?.getAttribute("src")).toBe("/api/assets/first/media");
 });
 
 test("a mouse drag keeps desktop navigation unchanged",async()=>{
  const stage=await begin();
  fireEvent.pointerDown(stage,{pointerId:1,pointerType:"mouse",isPrimary:true,clientX:140,clientY:40});
  fireEvent.pointerUp(stage,{pointerId:1,pointerType:"mouse",isPrimary:true,clientX:70,clientY:45});
- expect(document.querySelector<HTMLImageElement>(".media")?.getAttribute("src")).toBe("/api/assets/first/media");
+ expect(document.querySelector<HTMLImageElement>(".media-original")?.getAttribute("src")).toBe("/api/assets/first/media");
 });
