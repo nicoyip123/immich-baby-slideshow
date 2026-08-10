@@ -13,7 +13,7 @@ const SAFE_HEADERS = ["content-type", "content-length", "content-range", "accept
 export interface ImmichPort {
   listLikedAlbumAssets(albumId: string): Promise<SlideshowAsset[]>;
   fetchThumbnail(id: string): Promise<UpstreamMedia>;
-  fetchOriginal(id: string, range?: string): Promise<UpstreamMedia>;
+  fetchStill(id: string, range?: string): Promise<UpstreamMedia>;
   fetchVideoPlayback(id: string, range?: string): Promise<UpstreamMedia>;
 }
 
@@ -116,7 +116,7 @@ export class ImmichClient implements ImmichPort {
     return { status: response.status, headers, body: response.body };
   }
 
-  fetchThumbnail(id: string) { return this.media(`/assets/${encodeURIComponent(id)}/thumbnail?size=preview`); }
-  fetchOriginal(id: string, range?: string) { return this.media(`/assets/${encodeURIComponent(id)}/original`, range); }
+  fetchThumbnail(id: string) { return this.media(`/assets/${encodeURIComponent(id)}/thumbnail?size=thumbnail`); }
+  fetchStill(id: string, range?: string) { return this.media(`/assets/${encodeURIComponent(id)}/thumbnail?size=fullsize`, range); }
   fetchVideoPlayback(id: string, range?: string) { return this.media(`/assets/${encodeURIComponent(id)}/video/playback`, range); }
 }

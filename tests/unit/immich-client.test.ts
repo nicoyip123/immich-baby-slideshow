@@ -103,4 +103,16 @@ describe("ImmichClient", () => {
       { id: "plain-1", type: "IMAGE", capturedAt: "2025-07-02T10:00:00", durationMs: null, livePhotoVideoId: null }
     ]);
   });
+
+  it("requests full-size web-safe stills and lightweight thumbnails", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("x", { status: 200, headers: { "content-type": "image/jpeg" } }));
+    const client = new ImmichClient({ baseUrl: "http://immich:2283", apiKey: "secret-key" });
+    await client.fetchThumbnail("asset-1");
+    await client.fetchStill("asset-2");
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      "http://immich:2283/api/assets/asset-1/thumbnail?size=thumbnail",
+      "http://immich:2283/api/assets/asset-2/thumbnail?size=fullsize"
+    ]);
+  });
 });

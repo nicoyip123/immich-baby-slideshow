@@ -26,7 +26,7 @@ describe("slideshow backend routes", () => {
         { id: "video-1", type: "VIDEO", capturedAt: "2025-05-01T10:00:00", durationMs: 1200, livePhotoVideoId: null }
       ]; },
       async fetchThumbnail(id) { calls.push(`thumb:${id}`); return { status: 200, headers: new Headers({ "content-type": "image/jpeg" }), body: new Response("thumb").body }; },
-      async fetchOriginal(id, range) { calls.push(`image:${id}:${range}`); return { status: range ? 206 : 200, headers: new Headers({ "content-type": "image/jpeg", "content-range": "bytes 0-1/2" }), body: new Response("ok").body }; },
+      async fetchStill(id, range) { calls.push(`image:${id}:${range}`); return { status: range ? 206 : 200, headers: new Headers({ "content-type": "image/jpeg", "content-range": "bytes 0-1/2" }), body: new Response("ok").body }; },
       async fetchVideoPlayback(id, range) { calls.push(`video:${id}:${range}`); return { status: 206, headers: new Headers({ "content-type": "video/mp4", "content-range": "bytes 0-1/2" }), body: new Response("ok").body }; }
     };
     const database = createStatsDatabase(":memory:", () => new Date("2026-08-07T00:00:00Z"));

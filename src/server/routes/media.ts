@@ -6,7 +6,7 @@ import type { ImmichPort } from "../immich/client.js";
 
 export async function mediaRoutes(app: FastifyInstance, options: { immich: ImmichPort; soundtrackPath: string; family: preHandlerHookHandler; admin: preHandlerHookHandler }) {
   const send = async (kind: "thumbnail"|"image"|"video", id: string, range: string|undefined, reply: FastifyReply) => {
-    const media = kind === "thumbnail" ? await options.immich.fetchThumbnail(id) : kind === "image" ? await options.immich.fetchOriginal(id, range) : await options.immich.fetchVideoPlayback(id, range);
+    const media = kind === "thumbnail" ? await options.immich.fetchThumbnail(id) : kind === "image" ? await options.immich.fetchStill(id, range) : await options.immich.fetchVideoPlayback(id, range);
     for (const [name, value] of media.headers) reply.header(name, value);
     reply.header("cache-control", "private, max-age=300").code(media.status);
     return reply.send(media.body ? Readable.fromWeb(media.body as unknown as import("node:stream/web").ReadableStream) : undefined);
