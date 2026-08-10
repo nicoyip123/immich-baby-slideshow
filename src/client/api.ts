@@ -1,4 +1,4 @@
-export interface PlaylistItem { id:string; type:"IMAGE"|"VIDEO"; durationMs:number|null; ageLabel:string|null; impressionToken:string; mediaUrl:string; thumbnailUrl:string }
+export interface PlaylistItem { id:string; type:"IMAGE"|"VIDEO"; durationMs:number|null; ageLabel:string|null; impressionToken:string; mediaUrl:string; thumbnailUrl:string; motionUrl?:string }
 export interface Playlist { playlistId:string; photoDurationMs:number; items:PlaylistItem[] }
 export interface WelcomeCopy { eyebrow:string; title:string; body:string }
 async function json<T>(url:string, init?:RequestInit):Promise<T>{

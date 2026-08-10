@@ -16,7 +16,8 @@ export async function playlistRoutes(app: FastifyInstance, options: { config: Ap
         ageLabel: formatBabyAge(options.config.babyBirthDate, asset.capturedAt, options.config.timezone),
         impressionToken: options.impressions.issue(asset.id, asset.type),
         mediaUrl: `/api/media/${encodeURIComponent(asset.id)}/${asset.type === "VIDEO" ? "video" : "image"}`,
-        thumbnailUrl: `/api/media/${encodeURIComponent(asset.id)}/thumbnail`
+        thumbnailUrl: `/api/media/${encodeURIComponent(asset.id)}/thumbnail`,
+        ...(asset.livePhotoVideoId ? { motionUrl: `/api/media/${encodeURIComponent(asset.livePhotoVideoId)}/video` } : {})
       })) };
     } catch { return reply.code(503).send({ code: "MEMORIES_RESTING", message: "Our memories are resting—please try again shortly." }); }
   });

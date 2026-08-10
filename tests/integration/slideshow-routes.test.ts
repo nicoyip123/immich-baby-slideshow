@@ -23,7 +23,8 @@ describe("slideshow backend routes", () => {
     const immich: ImmichPort = {
       async listLikedAlbumAssets(albumId) { calls.push(`album:${albumId}`); return [
         { id: "photo-1", type: "IMAGE", capturedAt: "2025-04-01T10:00:00", durationMs: null, livePhotoVideoId: null },
-        { id: "video-1", type: "VIDEO", capturedAt: "2025-05-01T10:00:00", durationMs: 1200, livePhotoVideoId: null }
+        { id: "video-1", type: "VIDEO", capturedAt: "2025-05-01T10:00:00", durationMs: 1200, livePhotoVideoId: null },
+        { id: "live-1", type: "IMAGE", capturedAt: "2025-06-01T10:00:00", durationMs: null, livePhotoVideoId: "motion-1" }
       ]; },
       async fetchThumbnail(id) { calls.push(`thumb:${id}`); return { status: 200, headers: new Headers({ "content-type": "image/jpeg" }), body: new Response("thumb").body }; },
       async fetchStill(id, range) { calls.push(`image:${id}:${range}`); return { status: range ? 206 : 200, headers: new Headers({ "content-type": "image/jpeg", "content-range": "bytes 0-1/2" }), body: new Response("ok").body }; },
@@ -48,11 +49,20 @@ describe("slideshow backend routes", () => {
     const response = await app.inject({ method: "POST", url: "/api/playlist", headers: { origin, cookie: family } });
     expect(response.statusCode).toBe(200);
     const body = response.json();
-    expect(body.items).toHaveLength(2);
+    expect(body.items).toHaveLength(3);
     expect(calls).toContain(`album:${config.immichAlbumId}`);
-    expect(body.items.map((item: { type: string }) => item.type).sort()).toEqual(["IMAGE", "VIDEO"]);
+    expect(body.items.map((item: { type: string }) => item.type).sort()).toEqual(["IMAGE", "IMAGE", "VIDEO"]);
     expect(JSON.stringify(body)).not.toContain("immich:2283");
     expect(body.items.every((item: { impressionToken: string; mediaUrl: string }) => item.impressionToken && item.mediaUrl.startsWith("/api/media/"))).toBe(true);
+  });
+
+  it("marks Live Photos with a motion URL and leaves plain media without one", async () => {
+    const { app, family } = await setup();
+    const body = (await app.inject({ method: "POST", url: "/api/playlist", headers: { origin, cookie: family } })).json();
+    const find = (id: string) => body.items.find((item: { id: string }) => item.id === id);
+    expect(find("live-1").motionUrl).toBe("/api/media/motion-1/video");
+    expect(find("photo-1").motionUrl).toBeUndefined();
+    expect(find("video-1").motionUrl).toBeUndefined();
   });
 
   it("keeps the personalized welcome copy behind family authentication", async () => {
