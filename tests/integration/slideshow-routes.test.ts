@@ -22,8 +22,8 @@ describe("slideshow backend routes", () => {
     const calls: string[] = [];
     const immich: ImmichPort = {
       async listLikedAlbumAssets(albumId) { calls.push(`album:${albumId}`); return [
-        { id: "photo-1", type: "IMAGE", capturedAt: "2025-04-01T10:00:00", durationMs: null },
-        { id: "video-1", type: "VIDEO", capturedAt: "2025-05-01T10:00:00", durationMs: 1200 }
+        { id: "photo-1", type: "IMAGE", capturedAt: "2025-04-01T10:00:00", durationMs: null, livePhotoVideoId: null },
+        { id: "video-1", type: "VIDEO", capturedAt: "2025-05-01T10:00:00", durationMs: 1200, livePhotoVideoId: null }
       ]; },
       async fetchThumbnail(id) { calls.push(`thumb:${id}`); return { status: 200, headers: new Headers({ "content-type": "image/jpeg" }), body: new Response("thumb").body }; },
       async fetchOriginal(id, range) { calls.push(`image:${id}:${range}`); return { status: range ? 206 : 200, headers: new Headers({ "content-type": "image/jpeg", "content-range": "bytes 0-1/2" }), body: new Response("ok").body }; },

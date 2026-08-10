@@ -5,6 +5,7 @@ export interface SlideshowAsset {
   type: AssetType;
   capturedAt: string;
   durationMs: number | null;
+  livePhotoVideoId: string | null;
 }
 
 export interface UpstreamMedia {

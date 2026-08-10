@@ -74,7 +74,8 @@ export class ImmichClient implements ImmichPort {
         id: item.id,
         type: item.type as AssetType,
         capturedAt,
-        durationMs: typeof item.duration === "number" ? item.duration : null
+        durationMs: typeof item.duration === "number" ? item.duration : null,
+        livePhotoVideoId: typeof item.livePhotoVideoId === "string" ? item.livePhotoVideoId : null
       }];
     });
   }

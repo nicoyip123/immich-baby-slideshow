@@ -27,8 +27,8 @@ describe("ImmichClient", () => {
     const client = new ImmichClient({ baseUrl: "http://immich:2283", apiKey: "secret-key" });
 
     await expect(client.listLikedAlbumAssets(albumId)).resolves.toEqual([
-      { id: "image-1", type: "IMAGE", capturedAt: "2025-01-03T10:00:00", durationMs: null },
-      { id: "video-1", type: "VIDEO", capturedAt: "2025-02-04T10:00:00Z", durationMs: 4200 }
+      { id: "image-1", type: "IMAGE", capturedAt: "2025-01-03T10:00:00", durationMs: null, livePhotoVideoId: null },
+      { id: "video-1", type: "VIDEO", capturedAt: "2025-02-04T10:00:00Z", durationMs: 4200, livePhotoVideoId: null }
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
@@ -51,8 +51,8 @@ describe("ImmichClient", () => {
     const client = new ImmichClient({ baseUrl: "http://immich:2283", apiKey: "secret-key" });
 
     await expect(client.listLikedAlbumAssets(albumId)).resolves.toEqual([
-      { id: "image-1", type: "IMAGE", capturedAt: "2025-01-03T10:00:00", durationMs: null },
-      { id: "video-1", type: "VIDEO", capturedAt: "2025-02-04T10:00:00Z", durationMs: 4200 }
+      { id: "image-1", type: "IMAGE", capturedAt: "2025-01-03T10:00:00", durationMs: null, livePhotoVideoId: null },
+      { id: "video-1", type: "VIDEO", capturedAt: "2025-02-04T10:00:00Z", durationMs: 4200, livePhotoVideoId: null }
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(4);
     for (const [callIndex, page] of [[2, 1], [3, 2]] as const) {
@@ -85,5 +85,22 @@ describe("ImmichClient", () => {
     const error = await client.listLikedAlbumAssets(albumId).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(ImmichResponseError);
     expect(String(error)).not.toMatch(/immich:2283|secret-key|private body/i);
+  });
+
+  it("maps livePhotoVideoId for live photos and null otherwise", async () => {
+    const liveAlbum = { assets: [
+      { id: "live-1", type: "IMAGE", localDateTime: "2025-07-01T10:00:00", duration: null, livePhotoVideoId: "motion-uuid-1" },
+      { id: "plain-1", type: "IMAGE", localDateTime: "2025-07-02T10:00:00", duration: null }
+    ] };
+    const liveActivities = [{ type: "like", assetId: "live-1" }, { type: "like", assetId: "plain-1" }];
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify(liveAlbum), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(liveActivities), { status: 200 }));
+    const client = new ImmichClient({ baseUrl: "http://immich:2283", apiKey: "secret-key" });
+
+    await expect(client.listLikedAlbumAssets(albumId)).resolves.toEqual([
+      { id: "live-1", type: "IMAGE", capturedAt: "2025-07-01T10:00:00", durationMs: null, livePhotoVideoId: "motion-uuid-1" },
+      { id: "plain-1", type: "IMAGE", capturedAt: "2025-07-02T10:00:00", durationMs: null, livePhotoVideoId: null }
+    ]);
   });
 });
