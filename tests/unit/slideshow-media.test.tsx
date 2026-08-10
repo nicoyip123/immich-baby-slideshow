@@ -262,4 +262,22 @@ describe("slideshow media integration",()=>{
   expect(currentCleanup).toHaveBeenCalledOnce();
   expect(mixer.dispose).toHaveBeenCalledOnce();
  });
+
+ test("renders a Live Photo as a motion overlay and never advances when the clip ends",async()=>{
+  const livePhoto={...first,id:"lp",motionUrl:"/api/media/motion-1/video"};
+  clientApi.createPlaylist.mockResolvedValue({...playlist,items:[livePhoto,second]});
+  mixerHarness();
+  const {container}=await begin();
+  const video=container.querySelector<HTMLVideoElement>("video.media-motion")!;
+
+  expect(container.querySelector(".media-original")).toBeTruthy();
+  expect(video.getAttribute("src")).toBe("/api/media/motion-1/video");
+  expect(video.muted).toBe(true);
+
+  fireEvent.ended(video);
+  expect(video.classList.contains("media-motion-done")).toBe(true);
+  // still on the same (image) slide — the VIDEO item has not been mounted
+  expect(container.querySelector(".media-original")).toBeTruthy();
+  expect(container.querySelector("video.media:not(.media-motion)")).toBeNull();
+ });
 });
