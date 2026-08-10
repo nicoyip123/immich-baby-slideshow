@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import {cleanup,fireEvent,render} from "@testing-library/react";
-import {afterEach,describe,expect,test} from "vitest";
+import {cleanup,fireEvent,render,waitFor} from "@testing-library/react";
+import {afterEach,beforeEach,describe,expect,test,vi} from "vitest";
 import {LivePhoto} from "../../src/client/LivePhoto.js";
 
-afterEach(cleanup);
+beforeEach(()=>{vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue();});
+afterEach(()=>{cleanup();vi.restoreAllMocks();});
 
 const item={id:"lp",mediaUrl:"/api/media/lp/image",thumbnailUrl:"/api/media/lp/thumbnail"};
 
@@ -32,5 +33,12 @@ describe("LivePhoto",()=>{
   const video=container.querySelector<HTMLVideoElement>("video.media-motion")!;
   fireEvent.error(video);
   expect(video.classList.contains("media-motion-done")).toBe(true);
+ });
+
+ test("reveals the still when motion autoplay is blocked",async()=>{
+  vi.mocked(HTMLMediaElement.prototype.play).mockRejectedValue(new Error("NotAllowedError"));
+  const {container}=render(<LivePhoto item={item} motionUrl="/m"/>);
+  const video=container.querySelector<HTMLVideoElement>("video.media-motion")!;
+  await waitFor(()=>expect(video.classList.contains("media-motion-done")).toBe(true));
  });
 });
