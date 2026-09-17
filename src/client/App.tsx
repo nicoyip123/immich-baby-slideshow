@@ -1,4 +1,5 @@
 import {useEffect,useRef,useState} from "react";
+import {version} from "../../package.json";
 import * as api from "./api.js";
 import {loadAnalytics,readConsent,setConsent,track} from "./analytics.js";
 import {emptyLikedMemoriesCopy} from "./copy.js";
@@ -21,14 +22,40 @@ export function Slideshow({welcomeCopy}:{welcomeCopy:api.WelcomeCopy}){const[lis
  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;mixer.current?.dispose();mixer.current=null}},[]);
  useEffect(()=>{mixer.current?.setTarget(soundtrackLevel(soundtrackDuckType(item?.type,videoAudioUnlocked),muted))},[item?.type,muted,videoAudioUnlocked]);
  useEffect(()=>{if(!list||list.items.length<2)return;return preloadMediaItem(list.items[(index+1)%list.items.length])},[index,list]);
- useEffect(()=>{if(item?.type!=="VIDEO")return;if(paused){video.current?.pause();return}let active=true;void video.current?.play().catch(()=>{if(active)move(1)});return()=>{active=false}},[item,paused]);
+ useEffect(()=>{
+  const player=video.current;
+  if(item?.type!=="VIDEO"||!player)return;
+  if(paused){player.pause();return}
+  let active=true;
+  let lastPosition=player.currentTime;
+  let lastProgress=Date.now();
+  // Errors, completion and the watchdog can race; advance this slide only once.
+  const advance=()=>{if(!active)return;active=false;move(1)};
+  player.addEventListener("error",advance);
+  player.addEventListener("ended",advance);
+  // A pending play() or stalled stream may never reject or emit an error.
+  const watchdog=setInterval(()=>{
+   if(player.currentTime!==lastPosition){
+    lastPosition=player.currentTime;
+    lastProgress=Date.now();
+   }else if(Date.now()-lastProgress>=15_000)advance();
+  },1000);
+  if(player.error||player.ended)advance();
+  else void player.play().catch(advance);
+  return()=>{
+   active=false;
+   clearInterval(watchdog);
+   player.removeEventListener("error",advance);
+   player.removeEventListener("ended",advance);
+  };
+ },[item,paused]);
  const move=(delta:number)=>{if(list?.items.length)setIndex(i=>(i+delta+list.items.length)%list.items.length)};
  const pointerDown=(event:React.PointerEvent<HTMLElement>)=>{setVideoAudioUnlocked(true);if(event.pointerType!=="touch"||!event.isPrimary||(event.target as Element).closest(".controls")){swipe.current=null;return}swipe.current={pointerId:event.pointerId,x:event.clientX,y:event.clientY}};
  const pointerUp=(event:React.PointerEvent<HTMLElement>)=>{const start=swipe.current;swipe.current=null;if(!start||start.pointerId!==event.pointerId)return;const direction=swipeDirection(start,{x:event.clientX,y:event.clientY});if(direction){suppressClick.current=true;window.setTimeout(()=>{suppressClick.current=false},0);setControls(true);move(direction)}};
  const pointerCancel=()=>{swipe.current=null};
  const revealControls=()=>{setVideoAudioUnlocked(true);if(suppressClick.current){suppressClick.current=false;return}setControls(true)};
  const begin=async()=>{if(startup.current)return;startup.current=true;setStarting(true);setStartError(false);if(audio.current&&!mixer.current)mixer.current=createSoundtrackMixer(audio.current);mixer.current?.setTarget(soundtrackLevel(undefined,muted));void mixer.current?.start();try{const p=await api.createPlaylist();if(!mounted.current)return;mixer.current?.setTarget(soundtrackLevel(soundtrackDuckType(p.items[0]?.type,videoAudioUnlocked),muted));setList(p);track("slideshow_started")}catch{if(!mounted.current)return;mixer.current?.setTarget(0);setStartError(true)}finally{startup.current=false;if(mounted.current)setStarting(false)}};
- const content=!list?<WelcomeScreen copy={welcomeCopy} onBegin={begin} busy={starting} error={startError}/>:!item?<main className="cover"><div className="login"><h1>{emptyLikedMemoriesCopy.title}</h1><p>{emptyLikedMemoriesCopy.detail}</p></div></main>:<main className={`stage ${controls?"controls-visible":""}`} onPointerDown={pointerDown} onPointerUp={pointerUp} onPointerCancel={pointerCancel} onPointerMove={()=>setControls(true)} onClick={revealControls}>{item.type==="IMAGE"?(item.motionUrl?<LivePhoto key={item.id} item={item} motionUrl={item.motionUrl}/>:<ProgressiveImage key={item.id} item={item}/>):<video ref={video} key={item.id} className="media" src={item.mediaUrl} poster={item.thumbnailUrl} preload="auto" autoPlay={!paused} muted={muted||!videoAudioUnlocked} onEnded={()=>move(1)} playsInline/>}<div className="shade"/>{item.ageLabel&&<p className="age">{item.ageLabel}</p>}<nav className="controls"><button onClick={()=>move(-1)} aria-label="Previous">‹</button><button onClick={()=>setPaused(v=>!v)} aria-label={paused?"Play":"Pause"}>{paused?"▶":"Ⅱ"}</button><button onClick={()=>move(1)} aria-label="Next">›</button><button onClick={()=>setMuted(v=>!v)} aria-label={muted?"Unmute":"Mute"}>{muted?"🔇":"🔊"}</button><button onClick={()=>void document.documentElement.requestFullscreen?.()} aria-label="Fullscreen">⛶</button></nav></main>;
+ const content=!list?<WelcomeScreen copy={welcomeCopy} onBegin={begin} busy={starting} error={startError}/>:!item?<main className="cover"><div className="login"><h1>{emptyLikedMemoriesCopy.title}</h1><p>{emptyLikedMemoriesCopy.detail}</p></div></main>:<main className={`stage ${controls?"controls-visible":""}`} onPointerDown={pointerDown} onPointerUp={pointerUp} onPointerCancel={pointerCancel} onPointerMove={()=>setControls(true)} onClick={revealControls}>{item.type==="IMAGE"?(item.motionUrl?<LivePhoto key={item.id} item={item} motionUrl={item.motionUrl}/>:<ProgressiveImage key={item.id} item={item}/>):<video ref={video} key={item.id} className="media" src={item.mediaUrl} poster={item.thumbnailUrl} preload="auto" autoPlay={!paused} muted={muted||!videoAudioUnlocked} playsInline/>}<div className="shade"/>{item.ageLabel&&<p className="age">{item.ageLabel}</p>}<nav className="controls"><small className="release-version" aria-label="App version">v{version}</small><button onClick={()=>move(-1)} aria-label="Previous">‹</button><button onClick={()=>setPaused(v=>!v)} aria-label={paused?"Play":"Pause"}>{paused?"▶":"Ⅱ"}</button><button onClick={()=>move(1)} aria-label="Next">›</button><button onClick={()=>setMuted(v=>!v)} aria-label={muted?"Unmute":"Mute"}>{muted?"🔇":"🔊"}</button><button onClick={()=>void document.documentElement.requestFullscreen?.()} aria-label="Fullscreen">⛶</button></nav></main>;
  return <>{content}<audio key="soundtrack" ref={audio} src="/api/soundtrack" loop/></>}
 
 function Family({familyLinkToken}:{familyLinkToken?:string}){const[ready,setReady]=useState<boolean|null>(null);const[ga,setGa]=useState<string>();const[welcomeCopy,setWelcomeCopy]=useState<api.WelcomeCopy>();const[welcomeRequest,setWelcomeRequest]=useState(0);const[welcomeStatus,setWelcomeStatus]=useState<"loading"|"error"|"ready">("loading");const initialRequestStarted=useRef(false);useEffect(()=>{if(initialRequestStarted.current)return;initialRequestStarted.current=true;const authentication=familyLinkToken?api.loginWithFamilyLink(familyLinkToken).then(()=>true):api.status("family").then(v=>v.authenticated);void authentication.then(setReady).catch(()=>setReady(false));void fetch("/api/public-config").then(r=>r.json()).then(v=>{setGa(v.ga4MeasurementId);if(readConsent()==="granted")loadAnalytics(v.ga4MeasurementId);track("page_view")})},[familyLinkToken]);useEffect(()=>{if(!ready)return;let cancelled=false;setWelcomeStatus("loading");void api.getWelcomeCopy().then(copy=>{if(!cancelled){setWelcomeCopy(copy);setWelcomeStatus("ready")}}).catch(()=>{if(!cancelled)setWelcomeStatus("error")});return()=>{cancelled=true}},[ready,welcomeRequest]);if(ready===null)return null;const content=!ready?<Login role="family" onDone={()=>setReady(true)}/>:welcomeStatus==="ready"&&welcomeCopy?<Slideshow welcomeCopy={welcomeCopy}/>:welcomeStatus==="error"?<main className="cover"><section className="login"><p role="alert">We couldn't load the welcome screen. Please try again.</p><button type="button" onClick={()=>setWelcomeRequest(value=>value+1)}>Try again</button></section></main>:<main className="cover"><p role="status">Loading welcome screen…</p></main>;return <>{content}<ConsentPrompt id={ga}/></>}

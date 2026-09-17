@@ -281,3 +281,72 @@ describe("slideshow media integration",()=>{
   expect(container.querySelector("video.media:not(.media-motion)")).toBeNull();
  });
 });
+
+describe("video failure recovery",()=>{
+ afterEach(()=>vi.useRealTimers());
+
+ async function startVideo(){
+  clientApi.createPlaylist.mockResolvedValue({...playlist,items:[{...first,id:"third",ageLabel:"Three months"},second,first]});
+  mixerHarness();
+  const view=await begin();
+  vi.useFakeTimers();
+  fireEvent.click(screen.getByRole("button",{name:"Next"}));
+  return {...view,video:view.container.querySelector("video")!};
+ }
+
+ test("skips a video that reports a playback error",async()=>{
+  const {video}=await startVideo();
+  fireEvent.error(video);
+  expect(screen.getByText("One month")).toBeTruthy();
+ });
+
+ test("skips a video whose play promise never settles",async()=>{
+  vi.mocked(HTMLMediaElement.prototype.play).mockReturnValue(new Promise(()=>{}));
+  await startVideo();
+  act(()=>vi.advanceTimersByTime(15_000));
+  expect(screen.getByText("One month")).toBeTruthy();
+ });
+
+ test("allows progressing videos to play beyond the timeout, then skips a freeze",async()=>{
+  const {video}=await startVideo();
+  for(let seconds=1;seconds<=30;seconds++){
+   video.currentTime=seconds;
+   act(()=>vi.advanceTimersByTime(1000));
+  }
+  expect(screen.getByText("Two months")).toBeTruthy();
+  act(()=>vi.advanceTimersByTime(15_000));
+  expect(screen.getByText("One month")).toBeTruthy();
+ });
+
+ test("does not time out while paused and restarts the grace period on resume",async()=>{
+  await startVideo();
+  act(()=>vi.advanceTimersByTime(10_000));
+  fireEvent.click(screen.getByRole("button",{name:"Pause"}));
+  act(()=>vi.advanceTimersByTime(60_000));
+  expect(screen.getByText("Two months")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button",{name:"Play"}));
+  act(()=>vi.advanceTimersByTime(14_000));
+  expect(screen.getByText("Two months")).toBeTruthy();
+  act(()=>vi.advanceTimersByTime(1000));
+  expect(screen.getByText("One month")).toBeTruthy();
+ });
+
+ test("cleans up the watchdog when manually navigating away",async()=>{
+  await startVideo();
+  fireEvent.click(screen.getByRole("button",{name:"Next"}));
+  act(()=>vi.advanceTimersByTime(30_000));
+  expect(screen.getByText("One month")).toBeTruthy();
+ });
+
+ test("advances only once when error, end and play rejection arrive together",async()=>{
+  const pending=deferred<void>();
+  vi.mocked(HTMLMediaElement.prototype.play).mockReturnValue(pending.promise);
+  const {video}=await startVideo();
+  await act(async()=>{
+   video.dispatchEvent(new Event("error"));
+   video.dispatchEvent(new Event("ended"));
+   pending.reject(new Error("Failed playback"));
+  });
+  expect(screen.getByText("One month")).toBeTruthy();
+ });
+});
