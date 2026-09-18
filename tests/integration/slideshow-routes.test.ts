@@ -43,6 +43,15 @@ describe("slideshow backend routes", () => {
     return { app, calls, family: await login("family"), admin: await login("admin") };
   }
 
+  it("allows GA4 regional collection while retaining restrictive script rules",async()=>{
+    const {app}=await setup();
+    const response=await app.inject({url:"/health"});
+    const csp=String(response.headers["content-security-policy"]);
+    expect(csp).toContain("connect-src 'self' https://www.googletagmanager.com https://*.google-analytics.com https://*.analytics.google.com");
+    expect(csp).toContain("img-src 'self' data: https://*.google-analytics.com https://www.googletagmanager.com");
+    expect(csp).not.toMatch(/unsafe-inline|unsafe-eval|doubleclick/);
+  });
+
   it("creates an authenticated mixed playlist with local URLs and age labels", async () => {
     const { app, family, calls } = await setup();
     expect((await app.inject({ method: "POST", url: "/api/playlist", headers: { origin } })).statusCode).toBe(401);

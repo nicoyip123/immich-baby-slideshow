@@ -50,8 +50,11 @@ export async function buildApp(options: BuildAppOptions) {
       : false
   });
   app.addHook("onSend", async (_request, reply, payload) => {
-    const google = options.config?.ga4MeasurementId ? " https://www.googletagmanager.com https://www.google-analytics.com" : "";
-    reply.header("content-security-policy", `default-src 'self'; img-src 'self' data:; media-src 'self' blob:; style-src 'self'; script-src 'self'${google}; connect-src 'self'${google}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`);
+    const analyticsEnabled = Boolean(options.config?.ga4MeasurementId);
+    const googleScript = analyticsEnabled ? " https://www.googletagmanager.com" : "";
+    const googleImages = analyticsEnabled ? " https://*.google-analytics.com https://www.googletagmanager.com" : "";
+    const googleConnections = analyticsEnabled ? " https://www.googletagmanager.com https://*.google-analytics.com https://*.analytics.google.com" : "";
+    reply.header("content-security-policy", `default-src 'self'; img-src 'self' data:${googleImages}; media-src 'self' blob:; style-src 'self'; script-src 'self'${googleScript}; connect-src 'self'${googleConnections}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`);
     reply.header("x-content-type-options", "nosniff");
     reply.header("referrer-policy", "no-referrer");
     reply.header("x-frame-options", "DENY");
