@@ -58,7 +58,7 @@ function unit(value: number, singular: string): string {
   return `${value} ${value === 1 ? singular : `${singular}s`}`;
 }
 
-export function formatBabyAge(birthDate: string, capturedAt: string, timeZone: string): string | null {
+export function formatBabyAge(birthDate: string, capturedAt: string, timeZone: string, locale: "en" | "zh-Hans" | "zh-Hant" = "en"): string | null {
   const birthMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(birthDate);
   const captured = dateParts(capturedAt, timeZone);
   if (!birthMatch || !captured) return null;
@@ -77,6 +77,14 @@ export function formatBabyAge(birthDate: string, capturedAt: string, timeZone: s
     anniversary = addMonthsClamped(birth, months);
   }
   const days = Math.floor((capturedTime - calendarTime(anniversary)) / 86_400_000);
+
+  if (locale !== "en") {
+    if (months < 1) return `${days}天大`;
+    const monthUnit = locale === "zh-Hans" ? "个月" : "個月";
+    if (months < 12) return `${months}${monthUnit}${days}天`;
+    const yearUnit = locale === "zh-Hans" ? "岁" : "歲";
+    return `${Math.floor(months / 12)}${yearUnit}${months % 12}${monthUnit}${days}天`;
+  }
 
   if (months < 1) {
     return `${unit(days, "day")} old`;

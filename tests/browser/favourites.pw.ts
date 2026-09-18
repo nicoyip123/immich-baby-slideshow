@@ -13,8 +13,8 @@ async function fixture(page:Page){
   if(path.includes("/media/"))return route.fulfill({contentType:"image/svg+xml",body:'<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200"><defs><linearGradient id="a" x2="1" y2="1"><stop stop-color="#e9d0b8"/><stop offset="1" stop-color="#77918c"/></linearGradient></defs><rect width="900" height="1200" fill="url(#a)"/><circle cx="450" cy="520" r="180" fill="#f7ede1"/><text x="450" y="820" text-anchor="middle" font-size="40" fill="#304744">A favourite moment</text></svg>'});
   if(path==="/api/public-config")return route.fulfill({json:{photoDurationMs:600000}});
   if(path.endsWith("/status"))return route.fulfill({json:{authenticated:true}});
-  if(path==="/api/welcome")return route.fulfill({json:{eyebrow:"A little story",title:"Welcome",body:"Family memories"}});
-  if(path==="/api/playlist")return route.fulfill({json:{playlistId:"p",photoDurationMs:600000,items:[{id:"photo",type:"IMAGE",isFavourite:saved.has("photo"),durationMs:null,ageLabel:"One month",impressionToken:"token",mediaUrl:"/api/media/photo/image",thumbnailUrl:"/api/media/photo/thumbnail"}]}});
+  if(path==="/api/welcome")return route.fulfill({json:{eyebrow:"A little story",title:"Welcome",body:"Family memories",translations:{"zh-Hans":{eyebrow:"成长故事",title:"欢迎",body:"家庭回忆"},"zh-Hant":{eyebrow:"成長故事",title:"歡迎",body:"家庭回憶"}}}});
+  if(path==="/api/playlist")return route.fulfill({json:{playlistId:"p",photoDurationMs:600000,items:[{id:"photo",type:"IMAGE",isFavourite:saved.has("photo"),durationMs:null,ageLabel:"One month",ageLabels:{en:"One month","zh-Hans":"1个月0天","zh-Hant":"1個月0天"},impressionToken:"token",mediaUrl:"/api/media/photo/image",thumbnailUrl:"/api/media/photo/thumbnail"}]}});
   if(path==="/api/favourites"){
    saves++;const {assetId}=route.request().postDataJSON();const created=!saved.has(assetId);
    saved.set(assetId,{assetId,mediaType:"IMAGE",savedAt:"2026-09-18T00:00:00Z",thumbnailUrl:`/api/admin/media/${assetId}/thumbnail`,mediaUrl:`/api/admin/media/${assetId}/image`});
@@ -64,6 +64,7 @@ test("desktop double click saves and keyboard can reach the faded heart",async({
  await expect(page.getByText("Liked",{exact:true})).toBeVisible();
  await page.keyboard.press("Tab");
  const heart=page.getByRole("button",{name:"Save favourite again"});
+ if(!await heart.evaluate(element=>element===document.activeElement))await page.keyboard.press("Tab");
  await expect(heart).toBeFocused();
  await expect(page.locator(".favourite-tools")).toHaveCSS("opacity","1");
  await page.keyboard.press("Enter");
@@ -103,3 +104,33 @@ test("reduced motion keeps clear like confirmation without animation",async({pag
  await expect(page.locator(".heart-burst-icon")).toHaveCSS("animation-name","none");
  await expect(page.getByText("Liked",{exact:true})).toBeVisible();
 });
+
+
+for(const [locale,language,welcome,start,age] of [
+ ["zh-CN","zh-Hans","欢迎","开启回忆之旅","1个月0天"],
+ ["zh-TW","zh-Hant","歡迎","開啟回憶之旅","1個月0天"]
+]){
+ test(locale+" detects Chinese and remembers a switch without restarting",async({browser})=>{
+  const context=await browser.newContext({locale,viewport:{width:390,height:844}});
+  const page=await context.newPage();await fixture(page);
+  await page.goto("https://slideshow.test/");
+  await expect(page.locator("html")).toHaveAttribute("lang",language);
+  await expect(page.getByRole("heading",{name:welcome,exact:true})).toBeVisible();
+  await page.screenshot({path:"/tmp/slideshow-"+locale+"-welcome.png"});
+  await page.getByRole("button",{name:start}).click();
+  await expect(page.getByText(age,{exact:true})).toBeVisible();
+  await page.locator("main.stage").dblclick({position:{x:190,y:350}});
+  await expect(page.getByRole("status")).toHaveText("已加入收藏");
+  const stage=await page.locator("main.stage").elementHandle();
+  await page.getByRole("combobox").selectOption("en");
+  expect(await stage?.evaluate(element=>element===document.querySelector("main.stage"))).toBe(true);
+  await expect(page.getByText("One month",{exact:true})).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("button",{name:"Begin the journey"})).toBeVisible();
+  await page.goto("https://slideshow.test/admin");
+  await page.getByRole("combobox").first().selectOption(language);
+  await page.screenshot({path:"/tmp/slideshow-"+locale+"-admin.png",fullPage:true});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await context.close();
+ });
+}

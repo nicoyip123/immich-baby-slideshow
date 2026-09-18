@@ -1,6 +1,6 @@
-export interface PlaylistItem { id:string; type:"IMAGE"|"VIDEO"; durationMs:number|null; ageLabel:string|null; impressionToken:string; mediaUrl:string; thumbnailUrl:string; motionUrl?:string; isFavourite?:boolean }
+export interface PlaylistItem { id:string; type:"IMAGE"|"VIDEO"; durationMs:number|null; ageLabel:string|null; impressionToken:string; mediaUrl:string; thumbnailUrl:string; motionUrl?:string; isFavourite?:boolean; ageLabels?:Record<"en"|"zh-Hans"|"zh-Hant",string|null> }
 export interface Playlist { playlistId:string; photoDurationMs:number; items:PlaylistItem[] }
-export interface WelcomeCopy { eyebrow:string; title:string; body:string }
+export interface WelcomeCopy { eyebrow:string; title:string; body:string; translations?:Record<"zh-Hans"|"zh-Hant",{eyebrow:string;title:string;body:string}> }
 async function json<T>(url:string, init?:RequestInit):Promise<T>{
   const headers=new Headers(init?.headers);
   if(init?.body!==undefined&&init.body!==null&&init.body!==""&&!headers.has("content-type"))headers.set("content-type","application/json");

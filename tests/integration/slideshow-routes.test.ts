@@ -59,10 +59,26 @@ describe("slideshow backend routes", () => {
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(body.items).toHaveLength(3);
+    expect(body.items.find((item: { id: string }) => item.id === "photo-1")).toMatchObject({
+      ageLabel: "3 months, 0 days old",
+      ageLabels: { en: "3 months, 0 days old", "zh-Hans": "3个月0天", "zh-Hant": "3個月0天" }
+    });
     expect(calls).toContain(`album:${config.immichAlbumId}`);
     expect(body.items.map((item: { type: string }) => item.type).sort()).toEqual(["IMAGE", "IMAGE", "VIDEO"]);
     expect(JSON.stringify(body)).not.toContain("immich:2283");
     expect(body.items.every((item: { impressionToken: string; mediaUrl: string }) => item.impressionToken && item.mediaUrl.startsWith("/api/media/"))).toBe(true);
+  });
+
+  it("returns null age translations for unknown capture dates", async () => {
+    const { app, family, immich } = await setup();
+    immich.listLikedAlbumAssets = async () => [
+      { id: "undated", type: "IMAGE", capturedAt: "invalid", durationMs: null, livePhotoVideoId: null }
+    ];
+    const response = await app.inject({ method: "POST", url: "/api/playlist", headers: { origin, cookie: family } });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().items[0]).toMatchObject({
+      ageLabel: null, ageLabels: { en: null, "zh-Hans": null, "zh-Hant": null }
+    });
   });
 
   it("marks Live Photos with a motion URL and leaves plain media without one", async () => {
@@ -83,7 +99,11 @@ describe("slideshow backend routes", () => {
     expect(response.json()).toEqual({
       eyebrow: "Seren’s little story",
       title: "From your very first days…",
-      body: "A collection of tiny moments, growing smiles, and all the love that has surrounded you since the day you arrived."
+      body: "A collection of tiny moments, growing smiles, and all the love that has surrounded you since the day you arrived.",
+      translations: {
+        "zh-Hans": { eyebrow: "Seren 的成长故事", title: "从你来到世界的那一天起…", body: "珍藏每个小小的瞬间、日渐灿烂的笑容，还有从你出生起就一直围绕着你的爱。" },
+        "zh-Hant": { eyebrow: "Seren 的成長故事", title: "從你來到世界的那一天起…", body: "珍藏每個小小的瞬間、日漸燦爛的笑容，還有從你出生起就一直圍繞著你的愛。" }
+      }
     });
   });
 

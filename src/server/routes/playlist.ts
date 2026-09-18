@@ -17,6 +17,11 @@ export async function playlistRoutes(app: FastifyInstance, options: { config: Ap
       return { playlistId: randomBytes(18).toString("base64url"), photoDurationMs: options.config.photoDurationMs, items: shuffled(assets).map((asset) => ({
         id: asset.id, type: asset.type, durationMs: asset.durationMs, isFavourite:favourites.has(asset.id),
         ageLabel: formatBabyAge(options.config.babyBirthDate, asset.capturedAt, options.config.timezone),
+        ageLabels: {
+          en: formatBabyAge(options.config.babyBirthDate, asset.capturedAt, options.config.timezone),
+          "zh-Hans": formatBabyAge(options.config.babyBirthDate, asset.capturedAt, options.config.timezone, "zh-Hans"),
+          "zh-Hant": formatBabyAge(options.config.babyBirthDate, asset.capturedAt, options.config.timezone, "zh-Hant")
+        },
         impressionToken: options.impressions.issue(asset.id, asset.type),
         mediaUrl: `/api/media/${encodeURIComponent(asset.id)}/${asset.type === "VIDEO" ? "video" : "image"}`,
         thumbnailUrl: `/api/media/${encodeURIComponent(asset.id)}/thumbnail`,

@@ -5,6 +5,24 @@ import { createImpressionCodec } from "../../src/server/slideshow/impressions.js
 
 describe("baby age labels", () => {
   it.each([
+    ["2025-01-01", "2025-01-04T12:00:00", "3天大", "3天大"],
+    ["2025-01-01", "2025-03-04T12:00:00", "2个月3天", "2個月3天"],
+    ["2024-01-01", "2025-03-04T12:00:00", "1岁2个月3天", "1歲2個月3天"],
+    ["2024-02-29", "2025-02-28T12:00:00", "1岁0个月0天", "1歲0個月0天"],
+    ["2025-01-01", "2025-02-28T13:30:00Z", "2个月0天", "2個月0天"]
+  ])("localizes calendar age including leap anniversaries and local dates", (birth, captured, simplified, traditional) => {
+    expect(formatBabyAge(birth, captured, "Australia/Melbourne", "zh-Hans")).toBe(simplified);
+    expect(formatBabyAge(birth, captured, "Australia/Melbourne", "zh-Hant")).toBe(traditional);
+    expect(formatBabyAge(birth, captured, "Australia/Melbourne", "en")).toBe(formatBabyAge(birth, captured, "Australia/Melbourne"));
+  });
+
+  it.each(["en", "zh-Hans", "zh-Hant"] as const)("keeps invalid and pre-birth dates null in %s", (locale) => {
+    expect(formatBabyAge("2025-01-01", "invalid", "Australia/Melbourne", locale)).toBeNull();
+    expect(formatBabyAge("2025-02-30", "2025-03-04T12:00:00", "Australia/Melbourne", locale)).toBeNull();
+    expect(formatBabyAge("2025-01-01", "2024-12-31T12:00:00", "Australia/Melbourne", locale)).toBeNull();
+  });
+
+  it.each([
     ["2025-01-01", "2025-01-01T12:00:00", "0 days old"],
     ["2025-01-01", "2025-01-02T12:00:00", "1 day old"],
     ["2025-01-01", "2025-01-30T12:00:00", "29 days old"]

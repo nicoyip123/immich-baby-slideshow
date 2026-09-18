@@ -1,3 +1,4 @@
+import {useLanguage} from "./language.js";
 import {useEffect,useRef,useState} from "react";
 import {saveFavourite} from "./api.js";
 
@@ -28,6 +29,7 @@ export function useSaveFavourite(assetId:string|undefined,initiallyLiked=false){
 }
 
 export function FavouriteButton({status,save,liked,feedbackId}:{status:SaveStatus;save:()=>Promise<void>;liked:boolean;feedbackId:number}){
+ const {t}=useLanguage();
  const [showFeedback,setShowFeedback]=useState(false);
  useEffect(()=>{
   setShowFeedback(status!=="idle");
@@ -36,11 +38,11 @@ export function FavouriteButton({status,save,liked,feedbackId}:{status:SaveStatu
   return()=>clearTimeout(timer);
  },[status,feedbackId]);
  const saved=status==="saved"||status==="already";
- const message=status==="saving"?"Saving…":status==="saved"?"Saved to favourites":status==="already"?"Already in favourites":status==="error"?"Couldn’t save. Tap the heart to retry.":"";
+ const message=status==="saving"?t("Saving…"):status==="saved"?t("Saved to favourites"):status==="already"?t("Already in favourites"):status==="error"?t("Couldn’t save. Tap the heart to retry."):"";
  return <>
   <div className={`favourite-tools ${liked?"is-liked":""}`}>
-   <button type="button" className={liked?"favourite-save is-saved":"favourite-save"} aria-pressed={liked} aria-label={status==="saving"?"Saving favourite":liked?"Save favourite again":"Save favourite"} title="Double-tap to like this moment for everyone" disabled={status==="saving"} onClick={()=>void save()}>{liked?"♥":"♡"}</button>
-   <span className="favourite-hint">{liked?"Liked":"Double-tap to like"}</span>
+   <button type="button" className={liked?"favourite-save is-saved":"favourite-save"} aria-pressed={liked} aria-label={status==="saving"?t("Saving favourite"):liked?t("Save favourite again"):t("Save favourite")} title={t("Double-tap to like this moment for everyone")} disabled={status==="saving"} onClick={()=>void save()}>{liked?"♥":"♡"}</button>
+   <span className="favourite-hint">{liked?t("Liked"):t("Double-tap to like")}</span>
   </div>
   {showFeedback&&<div key={`${feedbackId}-${status}`} className={`favourite-feedback ${saved?"is-saved":""}`} role={status==="error"?"alert":"status"}>
    {status!=="error"&&<div className={`heart-burst ${saved?"is-confirmed":"is-saving"}`} aria-hidden="true">
