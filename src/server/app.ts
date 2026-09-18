@@ -8,6 +8,7 @@ import { registerAuthRoutes, type AuthGuards } from "./routes/auth.js";
 import { playlistRoutes } from "./routes/playlist.js";
 import { mediaRoutes } from "./routes/media.js";
 import { publicConfigRoutes } from "./routes/public-config.js";
+import { favouritesRoutes } from "./routes/favourites.js";
 import { statsRoutes } from "./routes/stats.js";
 import { welcomeRoutes } from "./routes/welcome.js";
 import { createFailedLoginLimiter, createImmediatePermitPool } from "./security/login-attempts.js";
@@ -103,8 +104,9 @@ export async function buildApp(options: BuildAppOptions) {
     app.addHook("onClose", async () => database.close());
     await publicConfigRoutes(app, options.config);
     await welcomeRoutes(app, { family: guards.requireFamilySession });
-    await playlistRoutes(app, { config: options.config, immich, impressions, family: guards.requireFamilySession });
+    await playlistRoutes(app, { config: options.config, immich, database, impressions, family: guards.requireFamilySession });
     await mediaRoutes(app, { immich, soundtrackPath: options.config.soundtrackPath, family: guards.requireFamilySession, admin: guards.requireAdminSession });
+    await favouritesRoutes(app, { origin: options.config.publicOrigin, albumId: options.config.immichAlbumId, database, immich, family: guards.requireFamilySession, admin: guards.requireAdminSession });
     await statsRoutes(app, { origin: options.config.publicOrigin, database, impressions, family: guards.requireFamilySession, admin: guards.requireAdminSession });
     await options.registerRoutes?.(app, guards);
   }

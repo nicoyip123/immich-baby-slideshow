@@ -40,7 +40,7 @@ describe("slideshow backend routes", () => {
       const response = await app.inject({ method: "POST", url: `/api/auth/${role}`, headers: { origin }, payload: { password: role } });
       return String(response.headers["set-cookie"]).split(";", 1)[0]!;
     };
-    return { app, calls, family: await login("family"), admin: await login("admin") };
+    return { app, calls, immich, family: await login("family"), admin: await login("admin") };
   }
 
   it("allows GA4 regional collection while retaining restrictive script rules",async()=>{
@@ -110,4 +110,73 @@ describe("slideshow backend routes", () => {
     const report = (await app.inject({ url: "/api/admin/stats?period=all&type=all", headers: { cookie: admin } })).json();
     expect(report.items[0]).toMatchObject({ assetId: item.id, periodCount: 1, totalCount: 1 });
   });
+  it("marks shared likes in new playlists and reflects admin removal",async()=>{
+    const {app,family,admin}=await setup();
+    const playlist=async()=> (await app.inject({method:"POST",url:"/api/playlist",headers:{origin,cookie:family}})).json();
+    expect((await playlist()).items.find((item:{id:string})=>item.id==="photo-1").isFavourite).toBe(false);
+    await app.inject({method:"POST",url:"/api/favourites",headers:{origin,cookie:family},payload:{assetId:"photo-1"}});
+    expect((await playlist()).items.find((item:{id:string})=>item.id==="photo-1").isFavourite).toBe(true);
+    await app.inject({method:"DELETE",url:"/api/admin/favourites/photo-1",headers:{origin,cookie:admin}});
+    expect((await playlist()).items.find((item:{id:string})=>item.id==="photo-1").isFavourite).toBe(false);
+  });
+
+  it("saves shared favourites idempotently with canonical types and admin previews", async () => {
+    const { app, family, admin, calls } = await setup();
+    const save = () => app.inject({ method: "POST", url: "/api/favourites", headers: { origin, cookie: family }, payload: { assetId: "video-1", mediaType: "IMAGE" } });
+    const first = await save();
+    expect(first.statusCode).toBe(200);
+    expect(first.json()).toEqual({ saved: true, created: true });
+    expect(first.headers["cache-control"]).toBe("private, no-store");
+    expect((await save()).json()).toEqual({ saved: true, created: false });
+    expect(calls).toContain(`album:${config.immichAlbumId}`);
+    const response = await app.inject({ url: "/api/admin/favourites", headers: { cookie: admin } });
+    expect(response.headers["cache-control"]).toBe("private, no-store");
+    expect(response.json().items).toEqual([{ assetId: "video-1", mediaType: "VIDEO", savedAt: "2026-08-07T00:00:00.000Z", thumbnailUrl: "/api/admin/media/video-1/thumbnail", mediaUrl: "/api/admin/media/video-1/video" }]);
+    await app.inject({ method: "DELETE", url: "/api/admin/stats", headers: { origin, cookie: admin }, payload: { confirmation: "RESET" } });
+    expect((await app.inject({ url: "/api/admin/favourites", headers: { cookie: admin } })).json().items).toHaveLength(1);
+    for (let i = 0; i < 2; i++) expect((await app.inject({ method: "DELETE", url: "/api/admin/favourites/video-1", headers: { origin, cookie: admin } })).json()).toEqual({ success: true });
+    expect((await app.inject({ url: "/api/admin/favourites", headers: { cookie: admin } })).json().items).toEqual([]);
+  });
+
+  it("protects favourites authentication, origin, membership and identifiers", async () => {
+    const { app, family, admin } = await setup();
+    expect((await app.inject({ method: "POST", url: "/api/favourites", headers: { origin }, payload: { assetId: "photo-1" } })).statusCode).toBe(401);
+    for (const invalidOrigin of [undefined, "https://evil.example"]) {
+      const headers = { cookie: family, ...(invalidOrigin ? { origin: invalidOrigin } : {}) };
+      expect((await app.inject({ method: "POST", url: "/api/favourites", headers, payload: { assetId: "photo-1" } })).statusCode).toBe(403);
+      expect((await app.inject({ method: "DELETE", url: "/api/admin/favourites/photo-1", headers: { ...headers, cookie: admin } })).statusCode).toBe(403);
+    }
+    for (const cookie of [undefined, family]) {
+      expect((await app.inject({ url: "/api/admin/favourites", headers: cookie ? { cookie } : {} })).statusCode).toBe(401);
+      expect((await app.inject({ method: "DELETE", url: "/api/admin/favourites/photo-1", headers: { origin, ...(cookie ? { cookie } : {}) } })).statusCode).toBe(401);
+    }
+    for (const assetId of [undefined, 12, "", "../secret", "a".repeat(129)]) expect((await app.inject({ method: "POST", url: "/api/favourites", headers: { origin, cookie: family }, payload: { assetId } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "POST", url: "/api/favourites", headers: { origin, cookie: family }, payload: { assetId: "forged-id" } })).statusCode).toBe(404);
+  });
+
+  it("proxies admin previews with ranges and validates kinds and ids", async () => {
+    const { app, family, admin, calls } = await setup();
+    for (const kind of ["thumbnail", "image", "video"]) {
+      expect((await app.inject({ url: `/api/admin/media/photo-1/${kind}`, headers: { cookie: family } })).statusCode).toBe(401);
+      const response = await app.inject({ url: `/api/admin/media/photo-1/${kind}`, headers: { cookie: admin, range: "bytes=0-1" } });
+      expect(response.statusCode).toBe(kind === "thumbnail" ? 200 : 206);
+      expect(response.headers["cache-control"]).toBe("private, no-store");
+    }
+    expect(calls).toContain("image:photo-1:bytes=0-1");
+    expect(calls).toContain("video:photo-1:bytes=0-1");
+    expect((await app.inject({ url: "/api/admin/media/a%20b/image", headers: { cookie: admin } })).statusCode).toBe(400);
+    expect((await app.inject({ url: "/api/admin/media/photo-1/original", headers: { cookie: admin } })).statusCode).toBe(400);
+  });
+
+  it("reports upstream save and preview failures without storing a favourite", async () => {
+    const { app, family, admin, immich } = await setup();
+    immich.listLikedAlbumAssets = async () => { throw new Error("private upstream address"); };
+    const response = await app.inject({ method: "POST", url: "/api/favourites", headers: { origin, cookie: family }, payload: { assetId: "photo-1" } });
+    expect(response.statusCode).toBe(503);
+    expect(response.body).not.toContain("private upstream");
+    expect((await app.inject({ url: "/api/admin/favourites", headers: { cookie: admin } })).json().items).toEqual([]);
+    immich.fetchStill = async () => { throw new Error("private upstream address"); };
+    expect((await app.inject({ url: "/api/admin/media/photo-1/image", headers: { cookie: admin } })).statusCode).toBe(502);
+  });
+
 });

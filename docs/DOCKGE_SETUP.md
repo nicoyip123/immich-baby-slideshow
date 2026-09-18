@@ -48,3 +48,12 @@ The command prints exactly two lines. Copy only the `FAMILY_LINK_TOKEN_HASH='…
 In Dockge, update the stack and use **Recreate** (or stop and deploy it again) so the container loads the new hash. No Cloudflare Tunnel change is needed. Opening the private URL signs that browser in for 30 days and immediately removes the secret fragment from its address bar. If the link fails, the normal family-password screen appears without revealing why.
 
 Treat the URL like a password: anyone who has it can view the family slideshow. To revoke it, run the generator again, replace `FAMILY_LINK_TOKEN_HASH` with the new first line, and recreate the container. Rotation immediately invalidates both the old URL and every session created by it; ordinary family-password and admin sessions remain valid. Share only the newly generated URL.
+
+
+## Shared favourite moments
+
+Family viewers can double-tap a photo or video (double-click on desktop), or use the heart button, to save it to a shared collection. A heart animation confirms the save, and a filled heart with a **Liked** label stays visible. Shared likes are loaded when starting a slideshow; reload to pick up changes made by other viewers or the admin. Open `/admin`, sign in as the owner, and choose **Favourites** to preview or remove saves. **Refresh** picks up saves from other viewers. Removing a favourite does not delete media or change Immich likes; resetting display statistics also preserves favourites.
+
+Favourites are stored in the existing SQLite database on the persistent `/data` volume. The table is created automatically on startup; preserve and back up that volume when updating the stack. The save route checks that the asset still belongs to the slideshow's liked album.
+
+Browser regression tests use a built frontend and mocked media/API fixtures. Install the browser once with `npx playwright install chromium`, then run `npm run verify`. If using a custom browser installation directory, set `PLAYWRIGHT_BROWSERS_PATH` for the verification command.

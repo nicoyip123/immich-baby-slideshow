@@ -1,5 +1,6 @@
 import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
-  testDir: "./tests/browser"
+  testDir: "./tests/browser",
+  testMatch: "**/*.pw.ts"
 });

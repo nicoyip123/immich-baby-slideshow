@@ -5,7 +5,8 @@ import {afterEach,beforeEach,expect,test,vi} from "vitest";
 
 const clientApi=vi.hoisted(()=>({
  createPlaylist:vi.fn(),
- countDisplay:vi.fn()
+ countDisplay:vi.fn(),
+ saveFavourite:vi.fn()
 }));
 const analytics=vi.hoisted(()=>({track:vi.fn()}));
 
@@ -27,6 +28,7 @@ const playlist={
 beforeEach(()=>{
  clientApi.createPlaylist.mockResolvedValue(playlist);
  clientApi.countDisplay.mockResolvedValue({counted:true});
+ clientApi.saveFavourite.mockResolvedValue({saved:true,created:true});
  vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue();
 });
 
@@ -78,4 +80,29 @@ test("a mouse drag keeps desktop navigation unchanged",async()=>{
  fireEvent.pointerDown(stage,{pointerId:1,pointerType:"mouse",isPrimary:true,clientX:140,clientY:40});
  fireEvent.pointerUp(stage,{pointerId:1,pointerType:"mouse",isPrimary:true,clientX:70,clientY:45});
  expect(document.querySelector<HTMLImageElement>(".media-original")?.getAttribute("src")).toBe("/api/assets/first/media");
+});
+
+function tap(stage:HTMLElement,x=100){
+ fireEvent.pointerDown(stage,{pointerId:1,pointerType:"touch",isPrimary:true,clientX:x,clientY:40});
+ fireEvent.pointerUp(stage,{pointerId:1,pointerType:"touch",isPrimary:true,clientX:x,clientY:40});
+}
+test("double-tapping saves the current moment without advancing",async()=>{
+ const stage=await begin();tap(stage);tap(stage);
+ await waitFor(()=>expect(clientApi.saveFavourite).toHaveBeenCalledExactlyOnceWith("first"));
+ expect(document.querySelector<HTMLImageElement>(".media-original")?.getAttribute("src")).toBe("/api/assets/first/media");
+});
+test("swiping between taps does not save the next moment",async()=>{
+ const stage=await begin();tap(stage);
+ fireEvent.pointerDown(stage,{pointerId:1,pointerType:"touch",isPrimary:true,clientX:140,clientY:40});
+ fireEvent.pointerUp(stage,{pointerId:1,pointerType:"touch",isPrimary:true,clientX:70,clientY:45});
+ tap(stage);
+ expect(clientApi.saveFavourite).not.toHaveBeenCalled();
+});
+test("taps on controls do not count towards a favourite gesture",async()=>{
+ const stage=await begin();tap(stage);
+ const pause=screen.getByRole("button",{name:"Pause"});
+ fireEvent.pointerDown(pause,{pointerId:1,pointerType:"touch",isPrimary:true,clientX:100,clientY:40});
+ fireEvent.pointerUp(pause,{pointerId:1,pointerType:"touch",isPrimary:true,clientX:100,clientY:40});
+ tap(stage);
+ expect(clientApi.saveFavourite).not.toHaveBeenCalled();
 });

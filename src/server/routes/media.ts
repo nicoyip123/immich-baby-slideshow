@@ -5,10 +5,10 @@ import { stat } from "node:fs/promises";
 import type { ImmichPort } from "../immich/client.js";
 
 export async function mediaRoutes(app: FastifyInstance, options: { immich: ImmichPort; soundtrackPath: string; family: preHandlerHookHandler; admin: preHandlerHookHandler }) {
-  const send = async (kind: "thumbnail"|"image"|"video", id: string, range: string|undefined, reply: FastifyReply) => {
+  const send = async (kind: "thumbnail"|"image"|"video", id: string, range: string|undefined, reply: FastifyReply, admin = false) => {
     const media = kind === "thumbnail" ? await options.immich.fetchThumbnail(id) : kind === "image" ? await options.immich.fetchStill(id, range) : await options.immich.fetchVideoPlayback(id, range);
     for (const [name, value] of media.headers) reply.header(name, value);
-    reply.header("cache-control", "private, max-age=300").code(media.status);
+    reply.header("cache-control", admin ? "private, no-store" : "private, max-age=300").code(media.status);
     return reply.send(media.body ? Readable.fromWeb(media.body as unknown as import("node:stream/web").ReadableStream) : undefined);
   };
   app.get<{Params:{id:string;kind:string}}>("/api/media/:id/:kind", { preHandler: options.family }, async (request, reply) => {
@@ -16,7 +16,12 @@ export async function mediaRoutes(app: FastifyInstance, options: { immich: Immic
     try { return await send(request.params.kind as "thumbnail"|"image"|"video", request.params.id, request.headers.range, reply); }
     catch { return reply.code(502).send({error:"Media unavailable"}); }
   });
-  app.get<{Params:{id:string}}>("/api/admin/media/:id/thumbnail", { preHandler: options.admin }, async (request, reply) => send("thumbnail", request.params.id, undefined, reply));
+  app.get<{Params:{id:string;kind:string}}>("/api/admin/media/:id/:kind", { preHandler: options.admin }, async (request, reply) => {
+    reply.header("cache-control", "private, no-store");
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(request.params.id) || !["thumbnail","image","video"].includes(request.params.kind)) return reply.code(400).send({error:"Invalid media request"});
+    try { return await send(request.params.kind as "thumbnail"|"image"|"video", request.params.id, request.headers.range, reply, true); }
+    catch { return reply.code(502).send({error:"Media unavailable"}); }
+  });
   app.get("/api/soundtrack", { preHandler: options.family }, async (request, reply) => {
     try {
       const info = await stat(options.soundtrackPath);

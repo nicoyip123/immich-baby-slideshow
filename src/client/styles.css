@@ -5,3 +5,31 @@
 @keyframes drift{from{transform:scale(1)}to{transform:scale(1.07) translate(1%,-1%)}}@media(prefers-reduced-motion:reduce){.kenburns{animation:none}.controls,.media-preview,.media-original,.media-motion{transition:none}}@media(max-width:600px){.login{padding:30px 22px}.welcome-cover{padding:18px}.welcome-card{padding:50px 30px;border-radius:26px}.welcome-card h1{font-size:clamp(2.4rem,13vw,3.5rem)}.welcome-copy{font-size:1rem}.welcome-spark-one{top:21px;left:22px}.welcome-spark-two{right:24px;bottom:21px}.controls{bottom:max(12px,env(safe-area-inset-bottom));gap:6px;padding:8px;border:1px solid #ffffff2b;border-radius:999px;background:#11151ad9;backdrop-filter:blur(14px)}.controls button{width:50px;height:50px;flex:0 0 50px}.age{bottom:calc(92px + env(safe-area-inset-bottom))}.consent{display:grid}.admin{padding:18px}}
 
 .release-version{position:absolute;bottom:100%;left:0;right:0;padding-bottom:6px;text-align:center;font-size:10px;letter-spacing:.04em;color:#ffffffa6;white-space:nowrap;pointer-events:none}
+
+/* Shared favourites */
+.stage{touch-action:pan-y pinch-zoom}
+.favourite-tools{position:absolute;top:max(22px,env(safe-area-inset-top));right:22px;display:flex;flex-direction:column;align-items:center;gap:7px;opacity:0;pointer-events:none;transition:opacity .3s}
+.controls-visible .favourite-tools,.favourite-tools:focus-within{opacity:1;pointer-events:auto}
+.favourite-save{width:50px;height:50px;border:1px solid #ffffff50;border-radius:50%;background:#111b;color:#fff;font-size:30px;cursor:pointer}
+.favourite-save.is-saved{color:#ffb5be;border-color:#ffb5be80}.favourite-save:disabled{opacity:.6}.favourite-hint{font-size:11px;color:#eee;text-shadow:0 1px 5px #000}
+.favourite-feedback{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;pointer-events:none;text-align:center;text-shadow:0 2px 12px #000;font-size:16px;font-weight:600;padding:30px;background:radial-gradient(ellipse at center,#0007,transparent 55%)}
+
+.favourite-tools.is-liked{opacity:1;pointer-events:auto}
+.heart-burst{position:relative;width:124px;height:124px;display:grid;place-items:center}
+.heart-burst-icon{width:104px;height:104px;fill:#ff8fa8;stroke:#ffe0e7;stroke-width:.7;filter:drop-shadow(0 6px 20px #e95f8270);animation:favourite-pop .65s cubic-bezier(.2,.8,.3,1) both}
+.heart-burst.is-saving .heart-burst-icon{fill:transparent;stroke:#ffcfda;animation:favourite-pulse .9s ease-in-out infinite}
+.heart-burst.is-confirmed::before{content:"";position:absolute;inset:0;border:3px solid #ffc4d1;border-radius:50%;animation:favourite-ring .7s ease-out both}
+.heart-burst i{position:absolute;width:8px;height:8px;border-radius:50%;background:#ffcedb;box-shadow:0 0 12px #ff8fa8;animation:favourite-spark .8s ease-out both}
+.heart-burst i:nth-of-type(1){top:0;left:24px}.heart-burst i:nth-of-type(2){top:5px;right:18px;animation-delay:.04s}.heart-burst i:nth-of-type(3){top:48px;right:-10px;animation-delay:.08s}.heart-burst i:nth-of-type(4){bottom:0;right:20px;animation-delay:.05s}.heart-burst i:nth-of-type(5){bottom:2px;left:16px;animation-delay:.09s}.heart-burst i:nth-of-type(6){top:48px;left:-10px;animation-delay:.02s}
+.favourite-feedback-message{background:#171019d9;padding:10px 18px;border:1px solid #ffcedb30;border-radius:99px;color:#fff}
+@keyframes favourite-pop{0%{transform:scale(.35) rotate(-14deg);opacity:0}45%{transform:scale(1.18) rotate(7deg);opacity:1}72%{transform:scale(.94) rotate(-3deg)}100%{transform:scale(1) rotate(0);opacity:1}}
+@keyframes favourite-ring{from{transform:scale(.45);opacity:.8}to{transform:scale(1.5);opacity:0}}
+@keyframes favourite-spark{0%{transform:translateY(6px) scale(.3);opacity:0}30%{opacity:1}100%{transform:translateY(-24px) scale(.7);opacity:0}}
+@keyframes favourite-pulse{0%,100%{transform:scale(.9);opacity:.6}50%{transform:scale(1);opacity:1}}
+.admin-tabs{display:flex;gap:8px;margin:24px 0}.admin-tabs button{background:#ffffff0d;color:#ccc;border:1px solid #ffffff24;cursor:pointer}.admin-tabs button[aria-pressed=true]{background:#f4dfbe;color:#29241f;border-color:#f4dfbe}
+.favourites-heading{display:flex;justify-content:space-between;gap:20px;align-items:center}.favourites-heading h2{margin:0}.favourites-heading p{color:#b5b0aa;max-width:620px;line-height:1.5}.favourites-heading button,.admin-favourites button{cursor:pointer}.favourites-heading button:disabled,.admin-favourites button:disabled{cursor:wait;opacity:.6}
+.favourites-empty{text-align:center;padding:60px 20px;color:#c5b9ad;background:#ffffff05;border:1px dashed #ffffff25;border-radius:18px}.favourites-empty>span{font-size:52px;color:#f4dfbe}.favourites-empty h3{color:#fff}.favourites-count{color:#aaa;font-size:14px}
+.admin .favourite-thumbnail{display:block;position:relative;width:100%;padding:0;border:0;background:#222;border-radius:0}.favourite-thumbnail img{display:block}.video-badge{position:absolute;inset:0;display:grid;place-items:center;font-size:30px;color:#fff;text-shadow:0 2px 8px #000}.admin .remove-favourite{margin-top:12px;border:1px solid #ffb8b035;color:#ffb8b0;background:#6e292933;font-size:13px}
+.favourite-preview{width:min(1000px,94vw);max-height:94dvh;padding:20px;border:1px solid #ffffff30;border-radius:18px;background:#101116;color:#fff}.favourite-preview::backdrop{background:#000c}.favourite-preview header{display:flex;align-items:center;justify-content:space-between;gap:15px;margin-bottom:16px}.favourite-preview h2{font-size:18px;margin:0}.favourite-preview img,.favourite-preview video{display:block;width:100%;max-height:75dvh;object-fit:contain}.favourite-preview button{padding:10px 18px;border-radius:99px;border:1px solid #ffffff35;background:#ffffff15;color:white;cursor:pointer}
+@media(max-width:600px){.favourite-tools{right:16px;top:max(16px,env(safe-area-inset-top))}.favourites-heading{align-items:flex-start}.admin header h1{font-size:1.5rem}.favourite-preview{padding:12px}}
+@media(prefers-reduced-motion:reduce){.heart-burst-icon,.heart-burst.is-saving .heart-burst-icon,.heart-burst i,.heart-burst.is-confirmed::before{animation:none}.heart-burst i,.heart-burst.is-confirmed::before{display:none}.favourite-tools{transition:none}}
