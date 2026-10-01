@@ -1,0 +1,60 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, immich-baby-slideshow]
+    concurrency:
+      group: deploy-immich-baby-slideshow
+      cancel-in-progress: false
+    env:
+      STACK_DIR: ${{ vars.DEPLOY_STACK_DIR || '/opt/stacks/immich-baby-slideshow' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Sync into stack directory
+        run: |
+          sudo rsync -a --delete \
+            --exclude='.git/' \
+            --exclude='.env' \
+            --exclude='music/' \
+            --exclude='node_modules/' \
+            --exclude='dist/' \
+            --exclude='test-results/' \
+            --exclude='playwright-report/' \
+            ./ "${STACK_DIR}/"
+
+      - name: Rebuild and restart stack
+        run: |
+          cd "${STACK_DIR}"
+          sudo docker compose up -d --build
+          sudo docker compose ps
+
+      - name: Health check
+        run: |
+          for i in $(seq 1 15); do
+            if curl -fsS "http://127.0.0.1:${SLIDESHOW_PORT:-3080}/health" >/dev/null; then
+              echo "Healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Health check failed" >&2
+          exit 1

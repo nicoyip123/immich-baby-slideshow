@@ -124,6 +124,8 @@ npm run deploy
 
 `DEPLOY_SERVER` is required; the script has no built-in default. Review the rest of the script before running it. It needs SSH key access, rsync, and remote sudo access. It deploys the current working tree, including uncommitted files, while preserving the server's `.env` and `music/`. It does not create a backup automatically.
 
+For automatic deploys on every push to `main`, see [GitHub Actions deployment](docs/CI_CD_SETUP.md), which runs the same sync-and-rebuild flow on a self-hosted runner.
+
 Back up the persistent `slideshow_data` Docker volume, `.env`, and `music/` before updates. The volume contains SQLite display statistics and shared favourites. Use a SQLite-consistent backup or stop the app while copying the volume. Keep backups private. Immich remains responsible for original media and its own backups. Avoid `docker compose down -v` unless you intend to remove the app's stored data.
 
 ## Troubleshooting
