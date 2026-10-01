@@ -122,7 +122,7 @@ DEPLOY_STACK_DIR=/opt/stacks/immich-baby-slideshow \
 npm run deploy
 ```
 
-Review the script's defaults before running it. It needs SSH key access, rsync, and remote sudo access. It deploys the current working tree, including uncommitted files, while preserving the server's `.env` and `music/`. It does not create a backup automatically.
+`DEPLOY_SERVER` is required; the script has no built-in default. Review the rest of the script before running it. It needs SSH key access, rsync, and remote sudo access. It deploys the current working tree, including uncommitted files, while preserving the server's `.env` and `music/`. It does not create a backup automatically.
 
 Back up the persistent `slideshow_data` Docker volume, `.env`, and `music/` before updates. The volume contains SQLite display statistics and shared favourites. Use a SQLite-consistent backup or stop the app while copying the volume. Keep backups private. Immich remains responsible for original media and its own backups. Avoid `docker compose down -v` unless you intend to remove the app's stored data.
 
@@ -134,3 +134,7 @@ Back up the persistent `slideshow_data` Docker volume, `.env`, and `music/` befo
 - **No analytics:** confirm the GA4 ID is configured and analytics consent was granted; browser blockers may prevent collection.
 - **Old interface after an update:** reload the page and check the admin version label.
 - **Container fails to start:** inspect `docker compose logs --tail=100 baby-slideshow` for configuration or connectivity errors.
+
+## License
+
+[MIT](LICENSE)

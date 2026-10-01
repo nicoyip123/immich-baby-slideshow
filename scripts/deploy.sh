@@ -17,10 +17,16 @@
 #       ssh-copy-id "$DEPLOY_SERVER"
 #   - Your user can sudo on the server (it will prompt once per deploy).
 #
-# Override any of these via env vars if the target ever changes.
+# Required: set DEPLOY_SERVER (user@host) for your own server. Override the
+# other env vars too if your stack path differs.
 set -euo pipefail
 
-SERVER="${DEPLOY_SERVER:-nico@nico-macmini.taile4aa99.ts.net}"
+if [[ -z "${DEPLOY_SERVER:-}" ]]; then
+  echo "DEPLOY_SERVER is not set. Example: DEPLOY_SERVER=user@your-server npm run deploy" >&2
+  exit 1
+fi
+
+SERVER="${DEPLOY_SERVER}"
 STACK_DIR="${DEPLOY_STACK_DIR:-/opt/stacks/immich-baby-slideshow}"
 STAGE_DIR="${DEPLOY_STAGE_DIR:-\$HOME/.deploy/immich-baby-slideshow}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
